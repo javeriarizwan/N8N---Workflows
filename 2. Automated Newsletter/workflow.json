@@ -1,0 +1,180 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {}
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -784,
+        -176
+      ],
+      "id": "f97510e9-10a8-408b-a5e5-295340e4fb78",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "yours google sheet id",
+          "mode": "list",
+          "cachedResultName": "Selected Theme",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/yours google sheet id/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/yours google sheet id/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -560,
+        -176
+      ],
+      "id": "1df4975b-459a-48b2-8816-09f5661adb78",
+      "name": "Select Theme"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all();\n\nlet day = Number($now.toFormat('d'));\n\nif (day > 30) day = 30; \n\nconst match = rows.find(r => Number(r.json.Day) === day);\n\nif (!match) throw new Error(`No row found for Day=${day}`);\nreturn [match];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -336,
+        -176
+      ],
+      "id": "01198b4e-acbe-4053-be4a-f2965bddca55",
+      "name": "Fetch Theme"
+    },
+    {
+      "parameters": {
+        "messages": {
+          "message": [
+            {
+              "content": "=You are a daily news briefing analyst for US real estate investors and wholesalers.\nAlways include source links. No made-up facts.\n",
+              "role": "system"
+            },
+            {
+              "content": "=Today’s audience: {{$json[\"Target Audience\"]}}\nToday’s theme: {{$json[\"Theme\"]}}\n\nTASK:\nFind the most important US real estate and investor-relevant updates from the last 24–48 hours and summarize them in a newsletter-friendly way.\n\nSCOPE (include a mix):\n1) Mortgage rates / Fed / inflation / jobs data that impacts deals\n2) Housing market: inventory, price cuts, affordability, rent trends\n3) Distress & motivated seller signals: foreclosure filings, delinquencies, liens, bankruptcies, tax delinquency, eviction trends\n4) Regulation / compliance that affects investors: short-term rentals, eviction policy, landlord rules, permitting, insurance\n5) Tactical/operator insights: marketing, lead gen, dispositions, negotiation, deal structure\n\nOUTPUT FORMAT:\n- Start with a 2–3 sentence “What matters today” overview.\n- Then provide 10 items, each with:\n  - Headline (max 12 words)\n  - 2-sentence summary (plain English)\n  - “Why it matters to investors/wholesalers” (1 sentence)\n  - Source link(s) with citations\n- Finally: provide the 5 best items to include today and say why you chose them.\n\nCONSTRAINTS:\n` Prefer primary/credible sources (gov data, major business news, industry research).\n- Avoid clickbait. Avoid unverified social posts.\n- If you cite data, include the number and the date.\n- Keep it skimmable.\n\nAlso: If possible, include at least 2 items that relate to today’s theme ({{$json[\"Theme\"]}}).\n"
+            }
+          ]
+        },
+        "options": {},
+        "requestOptions": {}
+      },
+      "type": "n8n-nodes-base.perplexity",
+      "typeVersion": 1,
+      "position": [
+        -112,
+        -176
+      ],
+      "id": "1725d228-8fbb-4da6-92be-48ddfaecba8b",
+      "name": "Ask Model"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nlet p = $input.first().json;\nif (Array.isArray(p)) p = p[0] || {};\n\nconst raw = String(p?.choices?.[0]?.message?.content || \"\");\n\nconst citations = Array.isArray(p?.citations) ? p.citations : [];\n\nconst searchResults = Array.isArray(p?.search_results) ? p.search_results : [];\n\nconst row = $(\"Fetch Theme\").first().json;\n\nconst subject = row[\"Subject Hook\"] || \"Daily Investor Brief\";\nconst theme = row.Theme || \"\";\nconst business  = row[\"business  Block\"] || \"\";\nconst cta = row.CTA || \"Reply with your county\";\n\nconst BRAND = {\n  name: \"business name\",\n  site: \"https://business data.io\",\n  contact: \"https://business data.io/contact/\",\n  trialCode: \"business DATA\",\n  email: \"contact@business data.io\",\n  phone: \"(409) 240-9010\",\n  logoUrl:\n    \"https://i0.wp.com/business data.io/wp-content/uploads/2022/08/cropped-revamped-logo-2.png?fit=715%2C104&ssl=1\",\n  signatureName: \"business Data Team\",\n  signatureTitle: \"business name\",\n  profileImg: \"https://business data.io/wp-content/uploads/2021/08/cropped-cropped-Asset-6.png\",\n\n  youtube: \"https://www.youtube.com/@realestate-data-tech/featured\",\n  instagram: \"https://www.instagram.com/business data/\",\n  skool: \"https://www.skool.com/realestate-data-tech-leads\",\n};\n\nconst NAVY = \"#0b2a6f\";\nconst BLUE = \"#1a73e8\";\nconst BORDER = \"#e6e6e6\";\nconst MUTED = \"#5f6368\";\nconst BG = \"#f3f4f6\";\nconst EDGE_BG = \"#eef3ff\";\nconst RED = \"#ff3b30\";\n\nconst esc = (s) =>\n  String(s || \"\")\n    .replace(/&/g, \"&amp;\")\n    .replace(/</g, \"&lt;\")\n    .replace(/>/g, \"&gt;\");\n\nconst stripMarkdown = (s) =>\n  String(s || \"\")\n    .replace(/\\[(\\d+)\\]/g, \"\") // [1]\n    .replace(/\\*\\*(.*?)\\*\\*/g, \"$1\")\n    .replace(/^\\s{0,3}#{1,6}\\s*/gm, \"\")\n    .replace(/^\\s{0,3}---\\s*$/gm, \"\")\n    .replace(/\\s+/g, \" \")\n    .trim();\n\nconst trimLen = (s, n) => {\n  const t = stripMarkdown(s);\n  return t.length > n ? t.slice(0, n).trim() + \"...\" : t;\n};\n\nconst topBarHtml = `\n  <div style=\"background:${NAVY}; color:#ffffff; padding:12px 14px; text-align:center; font-family:Arial, sans-serif;\">\n    <span style=\"font-size:13px; line-height:1.5;\">\n      Use discount code\n      <span style=\"font-weight:900; font-size:17px; color:${RED};\">${BRAND.trialCode}</span>\n      at checkout for a <b>7-day Free trial</b> coupon for you to try our service.\n    </span>\n  </div>\n`;\n\nlet intro = stripMarkdown(raw);\nif (intro.length > 550) intro = intro.slice(0, 550).trim() + \"...\";\nif (!intro) intro = \"Here are the key real estate signals from the last 24–48 hours.\";\n\nlet items = [];\n\nif (searchResults.length) {\n  items = searchResults\n    .filter((r) => r && (r.title || r.url))\n    .slice(0, 5)\n    .map((r) => ({\n      title: r.title || \"Market Update\",\n      body: r.snippet || \"Click to read the source.\",\n      link: r.url || \"\",\n    }));\n} else if (citations.length) {\n  items = citations.slice(0, 5).map((u) => ({\n    title: \"Source\",\n    body: u,\n    link: u,\n  }));\n} else {\n  items = [\n    {\n      title: \"Today’s Market Pulse\",\n      body: raw,\n      link: \"\",\n    },\n  ];\n}\n\nconst itemCards = items\n  .map((it) => {\n    const title = esc(stripMarkdown(it.title));\n    const body = esc(trimLen(it.body || \"\", 240));\n    const link = it.link || \"\";\n\n    const button = link\n      ? `<a href=\"${link}\" target=\"_blank\"\n          style=\"display:inline-block; margin-top:10px; background:${BLUE}; color:#fff; text-decoration:none; padding:10px 14px; border-radius:10px; font-weight:700;\">\n          Read more\n        </a>`\n      : \"\";\n\n    return `\n      <div style=\"border:1px solid ${BORDER}; border-radius:16px; padding:16px; margin:14px 0; background:#fff;\">\n        <div style=\"font-size:18px; font-weight:900; margin:0 0 8px;\">${title}</div>\n        <div style=\"font-size:14px; color:${MUTED}; line-height:1.6;\">${body}</div>\n        ${button}\n      </div>\n    `;\n  })\n  .join(\"\");\n\nconst business Box = `\n  <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" celbusiness acing=\"0\" style=\"margin:18px 0;\">\n    <tr>\n      <td style=\"border:1px solid ${BORDER}; border-radius:16px; overflow:hidden; font-family:Arial, sans-serif;\">\n\n        <!-- Header -->\n        <div style=\"background:${NAVY}; color:#fff; padding:12px 14px;\">\n          <div style=\"font-size:12px; letter-spacing:0.6px; text-transform:uppercase; opacity:.9;\">\n            business DATA EDGE\n          </div>\n          <div style=\"font-size:20px; font-weight:900; margin-top:6px;\">\n            ${esc(theme || \"business Data Edge\")}\n          </div>\n        </div>\n\n        <!-- Body -->\n        <div style=\"background:${EDGE_BG}; padding:14px;\">\n          <div style=\"color:#111; font-size:14px; line-height:1.7;\">\n            ${esc(business )}\n          </div>\n\n          <!-- Pills -->\n          <div style=\"margin-top:14px;\">\n            <span style=\"display:inline-block; background:#fff; border:1px solid ${BORDER}; padding:8px 12px; border-radius:999px; margin-right:10px; font-weight:700; font-size:13px;\">\n              7-day trial: <span style=\"color:${RED}; font-weight:900;\">${esc(BRAND.trialCode)}</span>\n            </span>\n\n            <span style=\"display:inline-block; background:#fff; border:1px solid ${BORDER}; padding:8px 12px; border-radius:999px; font-weight:700; font-size:13px; color:${NAVY};\">\n              Investor-grade data\n            </span>\n          </div>\n\n          <!-- Embedded CTA -->\n          <div style=\"text-align:center; margin:18px 0 6px;\">\n            <div style=\"font-size:15px; color:${MUTED}; margin-bottom:10px;\">\n              Want the list for your market?\n            </div>\n\n            <a href=\"mailto:${BRAND.email}?subject=${encodeURIComponent(cta)}\"\n               style=\"display:inline-block; background:${BLUE}; color:#fff; padding:12px 18px; border-radius:12px; font-weight:900; text-decoration:none;\">\n              ${esc(cta)}\n            </a>\n\n            <div style=\"font-size:12px; color:${MUTED}; margin-top:10px;\">\n              Tip: reply with <b>keyword + County + State</b> so we can send the right export.\n            </div>\n          </div>\n\n        </div>\n      </td>\n    </tr>\n  </table>\n`;\n// ===== Signature =====\nconst signatureHtml = `\n  <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" celbusiness acing=\"0\" style=\"border-top:1px solid ${BORDER}; border-bottom:1px solid ${BORDER}; margin-top:22px;\">\n    <tr>\n      <td style=\"padding:18px 0;\">\n        <table role=\"presentation\" cellpadding=\"0\" celbusiness acing=\"0\">\n          <tr>\n            <td width=\"72\" valign=\"middle\" style=\"padding-right:14px;\">\n              ${\n                BRAND.profileImg\n                  ? `<img src=\"${BRAND.profileImg}\" width=\"64\" height=\"64\" alt=\"business Data\"\n                          style=\"display:block; border-radius:999px; border:3px solid #dfe7ff; object-fit:cover;\" />`\n                  : `<div style=\"width:64px; height:64px; border-radius:999px; background:#eef2ff; border:3px solid #dfe7ff;\"></div>`\n              }\n            </td>\n            <td valign=\"middle\" style=\"font-family:Arial, sans-serif;\">\n              <div style=\"color:${MUTED}; font-size:13px; margin-bottom:2px;\">Sincerely,</div>\n              <div style=\"font-size:20px; font-weight:900; margin-bottom:4px;\">${esc(BRAND.signatureName)}</div>\n              <div style=\"font-size:13px; color:${MUTED};\">${esc(BRAND.signatureTitle)}</div>\n            </td>\n          </tr>\n        </table>\n      </td>\n    </tr>\n  </table>\n`;\nconst socialsHtml = `\n  <table border=\"0\" cellpadding=\"0\" celbusiness acing=\"0\" width=\"100%\" style=\"mso-line-height-rule: exactly;\">\n    <tr>\n      <td align=\"center\" style=\"padding:16px 0 4px; mso-line-height-rule: exactly;\">\n        <table border=\"0\" cellpadding=\"0\" celbusiness acing=\"0\" style=\"mso-line-height-rule: exactly;\">\n          <tr>\n            <td align=\"center\" valign=\"middle\" width=\"24\" style=\"padding:0 8px;\">\n              <a href=\"${BRAND.instagram}\" target=\"_blank\">\n                <img src=\"https://cdn-images.mailchimp.com/icons/social-block-v2/color-instagram-48.png\"\n                     alt=\"Instagram\" width=\"24\" height=\"24\"\n                     style=\"display:block; border:0; outline:none; text-decoration:none; -ms-interpolation-mode:bicubic;\" />\n              </a>\n            </td>\n\n            <td align=\"center\" valign=\"middle\" width=\"24\" style=\"padding:0 8px;\">\n              <a href=\"${BRAND.youtube}\" target=\"_blank\">\n                <img src=\"https://cdn-images.mailchimp.com/icons/social-block-v2/color-youtube-48.png\"\n                     alt=\"YouTube\" width=\"24\" height=\"24\"\n                     style=\"display:block; border:0; outline:none; text-decoration:none; -ms-interpolation-mode:bicubic;\" />\n              </a>\n            </td>\n            <td align=\"center\" valign=\"middle\" width=\"24\" style=\"padding:0 8px;\">\n            <a href=\"${BRAND.skool}\" target=\"_blank\">\n              <img src=\"https://www.google.com/s2/favicons?domain=skool.com&sz=64\"\n         alt=\"Skool\" width=\"24\" height=\"24\"\n         style=\"display:block; border:0; outline:none; text-decoration:none; -ms-interpolation-mode:bicubic;\" />\n            </a>\n            </td>\n          </tr>\n        </table>\n\n        <div style=\"font-size:12px; color:${MUTED}; margin-top:10px; font-family:Arial, sans-serif;\">\n          Follow us for daily investor data + deal signals\n        </div>\n      </td>\n    </tr>\n  </table>\n`;\n\nconst year = new Date().getFullYear();\n\nconst footerLegalHtml = `\n  <div style=\"text-align:center; padding:16px 0 6px; color:${MUTED}; font-size:12px; line-height:1.7; font-family:Arial, sans-serif;\">\n    <div style=\"font-style:italic;\">\n      Copyright © ${year} ${esc(BRAND.name)}, All rights reserved.\n    </div>\n\n    <div style=\"margin-top:10px;\">Want to change how you receive these emails?</div>\n\n    <div>\n      <a href=\"${BRAND.contact}\" target=\"_blank\" style=\"color:${BLUE}; text-decoration:none;\">Update preferences</a>\n      &nbsp;or&nbsp;\n      <a href=\"mailto:${BRAND.email}?subject=Unsubscribe\" style=\"color:${BLUE}; text-decoration:none;\">unsubscribe</a>\n    </div>\n\n    <div style=\"margin-top:12px;\">\n      <a href=\"${BRAND.site}\" target=\"_blank\" style=\"color:${BLUE}; text-decoration:none;\">${esc(BRAND.site)}</a>\n      &nbsp;•&nbsp;\n      <a href=\"mailto:${BRAND.email}\" style=\"color:${BLUE}; text-decoration:none;\">${esc(BRAND.email)}</a>\n      &nbsp;•&nbsp;\n      <a href=\"tel:+14092409010\" style=\"color:${MUTED}; text-decoration:none;\">${esc(BRAND.phone)}</a>\n    </div>\n  </div>\n`;\n\n// ===== Final HTML =====\nconst html = `\n<div style=\"background:${BG}; padding:24px 10px;\">\n  <div style=\"max-width:720px; margin:0 auto; background:#ffffff; border-radius:20px; overflow:hidden; border:1px solid ${BORDER}; font-family:Arial, sans-serif;\">\n\n    ${topBarHtml}\n\n    <div style=\"padding:18px; text-align:center; background:#ffffff;\">\n      <img src=\"${BRAND.logoUrl}\" alt=\"${esc(BRAND.name)}\" style=\"max-width:100%; height:auto; display:block; margin:0 auto;\">\n    </div>\n\n    <hr style=\"border:none; border-top:1px solid ${BORDER}; margin:0;\"/>\n\n    <div style=\"padding:18px 18px;\">\n      <div style=\"font-size:14px; color:${MUTED};\">Hi there,</div>\n\n      <div style=\"font-size:15px; line-height:1.75; margin-top:10px; color:#111;\">\n        ${esc(intro)}\n      </div>\n\n      <hr style=\"border:none; border-top:1px solid ${BORDER}; margin:18px 0;\"/>\n\n      <div style=\"font-size:20px; font-weight:900; margin-bottom:10px;\">Today’s Signals</div>\n\n      ${itemCards}\n\n      ${business Box}\n\n      ${signatureHtml}\n\n      ${socialsHtml}\n\n      ${footerLegalHtml}\n    </div>\n  </div>\n</div>\n`;\n\nreturn [{ json: { subject, html } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        112,
+        -176
+      ],
+      "id": "7b87ad28-055a-4a43-911d-1249653fe842",
+      "name": "Write Newsletter"
+    },
+    {
+      "parameters": {
+        "sendTo": "sender email",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        336,
+        -176
+      ],
+      "id": "14c7a82a-544d-4db4-bc44-e9f1a05cb536",
+      "name": "Send to Customers",
+      "webhookId": "yours webhook id"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Select Theme",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Theme": {
+      "main": [
+        [
+          {
+            "node": "Fetch Theme",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Theme": {
+      "main": [
+        [
+          {
+            "node": "Ask Model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask Model": {
+      "main": [
+        [
+          {
+            "node": "Write Newsletter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Newsletter": {
+      "main": [
+        [
+          {
+            "node": "Send to Customers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "758e0ffe30e13cd672350dc14c0e482c3ce618b857510e7b0d249aee47ffa282"
+  }
+}

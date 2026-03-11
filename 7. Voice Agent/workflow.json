@@ -1,0 +1,358 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.body }}",
+        "options": {
+          "systemMessage": "=You are a helpfut assistant that can look up avaitabiblity and book\nappointments.\n\n#Tools\nCheck Availability\nCreate Appointment\n\n#Rules\nYou must check availability first before booking an appointment.\nIf the appointment is unavailable get the next closest appointment\nand output : \"the request appointment is unavailable, there are the\nnext closest times)\nIf the appointment is available bool the requested appointment and\noutput : \"the appointment has been booking\"\n\nThe current date is : {{ $now }}. So refer to this date to create\nappointment"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        48,
+        -48
+      ],
+      "id": "f55be687-fb9e-4fcb-91e7-e8a22b5d88e0",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-3.5-turbo",
+          "mode": "list",
+          "cachedResultName": "gpt-3.5-turbo"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -176,
+        144
+      ],
+      "id": "cae89a64-2392-4e28-9bbc-6319923e858f",
+      "name": "OpenAI Chat Model"
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "value": "javeriarizwan063@gmail.com",
+          "mode": "list",
+          "cachedResultName": "javeriarizwan063@gmail.com"
+        },
+        "start": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Start', ``, 'string') }}",
+        "end": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('End', ``, 'string') }}",
+        "additionalFields": {
+          "description": "=Information About user:\nName:{{ $('Webhook').item.json.body.message.toolCallList[0].function.arguments.Full_Name }}\nContact:{{ $('Webhook').item.json.body.message.toolCallList[0].function.arguments.Contact }}\nTime:{{ $('Webhook').item.json.body.message.toolCallList[0].function.arguments.Appointment_Date }}",
+          "summary": "={{ $fromAI('Summary', ``, 'string') }}"
+        }
+      },
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "typeVersion": 1.3,
+      "position": [
+        256,
+        272
+      ],
+      "id": "d322b743-6e00-4cf0-8d85-9066e2f02155",
+      "name": "Create Appointment"
+    },
+    {
+      "parameters": {
+        "resource": "calendar",
+        "calendar": {
+          "__rl": true,
+          "value": "javeriarizwan063@gmail.com",
+          "mode": "list",
+          "cachedResultName": "javeriarizwan063@gmail.com"
+        },
+        "timeMin": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Start_Time', ``, 'string') }}",
+        "timeMax": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('End_Time', ``, 'string') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "typeVersion": 1.3,
+      "position": [
+        48,
+        272
+      ],
+      "id": "0e31b194-624c-40d2-aa6e-0f424b1e8468",
+      "name": "Check Availability"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vapiassistant",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -256,
+        -48
+      ],
+      "id": "e27aed46-8d66-4050-9ba3-5da91bb15280",
+      "name": "Webhook",
+      "webhookId": "5c22bc7a-ac28-44ab-8aab-7c5578e46083"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"results\":[{\n      \"toolCallId\":\"{{ $('Webhook').item.json.body.message.toolCalls[0].id }}\",\n      \"result\":\"{{ $json.output }}\"\n  }]\n} ",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        448,
+        -48
+      ],
+      "id": "ff847e73-3d2b-411e-9e67-95a716f62d23",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "2d48d699-5a08-46f3-8e06-806672ff739e",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -368,
+        512
+      ],
+      "id": "6127ea68-815d-4f07-b5b7-ebcfef1e75d4",
+      "name": "Webhook1",
+      "webhookId": "2d48d699-5a08-46f3-8e06-806672ff739e"
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appjfkVZpdpohUI37",
+          "mode": "list",
+          "cachedResultName": "Data",
+          "cachedResultUrl": "https://airtable.com/appjfkVZpdpohUI37"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbl792Kn85djmAUFy",
+          "mode": "list",
+          "cachedResultName": "Table 1",
+          "cachedResultUrl": "https://airtable.com/appjfkVZpdpohUI37/tbl792Kn85djmAUFy"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Full Name": "={{ $json.body.data.fields[0].value }}",
+            "Email": "={{ $json.body.data.fields[2].value }}",
+            "Phone Number": "={{ $json.body.data.fields[1].value }}",
+            "Status": "Un-Called"
+          },
+          "matchingColumns": [
+            "Phone Number"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "Full Name",
+              "displayName": "Full Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Phone Number",
+              "displayName": "Phone Number",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Called",
+                  "value": "Called"
+                },
+                {
+                  "name": "Un-Called",
+                  "value": "Un-Called"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -160,
+        512
+      ],
+      "id": "86c7a880-9753-47f6-a4c1-52b6a6760776",
+      "name": "Create a record"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.vapi.ai/call",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "API Key"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "=application/json",
+        "body": "={\n  \"assistantId\": \"1e092f27-f56c-465f-9979-319fc6c94f21\",\n  \"phoneNumberId\": \"17b27a9c-726c-4674-8d55-9c88e828ef77\",\n  \"customer\": {\n    \"number\": \"{{ $('Webhook1').item.json.body.data.fields[1].value }}\",\n    \"name\": \"{{ $('Webhook1').item.json.body.data.fields[0].value }}\"\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        48,
+        512
+      ],
+      "id": "1895e0b4-5315-4816-b15e-5af242fb49b9",
+      "name": "HTTP Request"
+    }
+  ],
+  "connections": {
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Appointment": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Availability": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook1": {
+      "main": [
+        [
+          {
+            "node": "Create a record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a record": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "92e4fa6429e7ac8f3bde4029c29cc7d3b722ba7118c2871b2c6779ab88fff532"
+  }
+}

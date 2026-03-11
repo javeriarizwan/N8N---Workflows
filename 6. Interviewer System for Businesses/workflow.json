@@ -1,0 +1,1592 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 */15 6-22 * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1792,
+        112
+      ],
+      "id": "4d3b730b-dacd-4d04-9e62-be3999a7a5c9",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "const events = $input.all();\nconst interviewEvents = [];\n\nfor (const event of events) {\n  const e = event.json || {};\n  const summary = (event.json.summary || '').toLowerCase();\n  const desc = (event.json.description || '').toLowerCase();\n\n  // try extendedProperties first\n  let candidatePhone = e.extendedProperties?.private?.candidate_phone || null;\n\n  // fallback to \"Candidate Phone: +92...\"\n  if (!candidatePhone && e.description) {\n    const m = e.description.match(/candidate\\s*phone[:\\-]?\\s*([+\\d\\s\\-().]{6,})/i);\n    if (m) candidatePhone = m[1].trim();\n  }\n\n  // normalize simple\n  const normalize = (num) => {\n    if (!num) return '';\n    num = num.replace(/[\\s-]/g, '');\n    if (num.startsWith('+92')) return num;\n    if (num.startsWith('0')) return '+92' + num.slice(1);\n    if (num.startsWith('92')) return '+' + num;\n    return num;\n  };\n  candidatePhone = normalize(candidatePhone);\n\n  // basic e164-ish check\n  const validPhone = /^\\+[1-9]\\d{7,14}$/.test(candidatePhone);\n\n  const isInterview =\n    summary.includes('interview') ||\n    desc.includes('interview') ||\n    summary.includes('screening') ||\n    summary.includes('candidate') ||\n    summary.includes('call with');\n\n  const isPersonal =\n    summary.includes('dinner') ||\n    summary.includes('lunch') ||\n    summary.includes('personal') ||\n    summary.includes('doctor') ||\n    summary.includes('family') ||\n    summary.includes('gym');\n\n  if (isInterview && !isPersonal && validPhone) {\n    interviewEvents.push({ ...e, candidatePhone });\n  }\n}\n\nreturn interviewEvents.map(item => ({ json: item }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        112
+      ],
+      "id": "57b5981f-a88e-430b-8df2-41bb48676fbd",
+      "name": "Filter Interview Events",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "jsCode": "const now = new Date();\nconst out = [];\n\nfor (const { json:e } of $input.all()) {\n  // supports both start.dateTime or start.date\n  const raw = e?.start?.dateTime || e?.start?.date;\n  if (!raw) continue;\n\n  const start = new Date(raw);\n  const diffMin = (start - now) / 60000;\n\n  const in1h = diffMin >= 53  && diffMin <= 67;   // 1h  ±7m\n  const in4h = diffMin >= 233 && diffMin <= 247;  // 4h  ±7m\n\n\n  if (!in4h && !in1h) continue;\n\n  out.push({\n    json: {\n      ...e,\n      reminderType: in4h ? '4_hour' : '1_hour',\n      diffMin\n    }\n  });\n}\n\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -880,
+        112
+      ],
+      "id": "1b74671e-75ff-4768-868b-e694be38c192",
+      "name": "Filter Events in 1 hour and 4 hour"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-3.5-turbo",
+          "mode": "list",
+          "cachedResultName": "gpt-3.5-turbo"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -176,
+        1280
+      ],
+      "id": "49b65615-509b-4aa9-beab-0a8d720f3118",
+      "name": "OpenAI Chat Model"
+    },
+    {
+      "parameters": {
+        "promptType": "=define",
+        "text": "=You are an assistant that classifies WhatsApp replies from interview candidates and selects the correct tool to run in n8n.\n\nINPUT FIELDS\n- Text: {{ $json.text }}\n- From: {{ $json.phone }}   // e.g., \"whatsapp:+923001234567\"\n\nYOUR TASKS\n1) Analyze the message (case-insensitive, ignore emojis, punctuation, greetings, thanks).\n\n2) Detect one intent: \"confirm\", \"cancel\", \"reschedule\", or \"unknown\".\n   - confirm: user will attend\n     (examples: \"confirm\", \"confirmed\", \"yes\", \"ok\", \"i will join\", \"sure\", \"i will be there\", \"han\", \"jee\", \"theek hai\")\n   - cancel: user will NOT attend\n     (examples: \"cancel\", \"not coming\", \"withdraw\", \"cannot\", \"busy\", \"won't be able to attend\", \"mujhe cancel karna hai\")\n   - reschedule:\n     a) user explicitly asks to reschedule\n        (examples: \"reschedule\", \"another time\", \"change time\")\nor\n     b) user replies with a pure numeric value **1–9** → this always means slot selection\n   - unknown: anything else\n\n3) Normalize candidate_number from From:\n   - Remove \"whatsapp:\" prefix if present\n   - Keep leading \"+\" if present\n   - If not present, return digits only\n\n4) IMPORTANT RULE:\n   - If the message is exactly a numeric value 1–9:\n     * intent = \"reschedule\"\n     * additional_info = \"slot_choice=<N>\"\n   - Otherwise additional_info = \"\"\n\n5) Build a JSON object with these exact keys:\n{\n  \"intent\": \"<confirm | cancel | reschedule | unknown>\",\n  \"tool_to_use\": \"<ConfirmInterview | CancelInterview | RescheduleInterview | null>\",\n  \"candidate_number\": \"<normalized phone>\",\n  \"original_message\": \"<original Text>\",\n  \"additional_info\": \"<slot_choice=N or empty string>\"\n}\n\n6) After creating this JSON, immediately call the tool specified in tool_to_use and pass this JSON object as the input payload.\n   - If intent = \"confirm\" → call confirmInterview with this JSON.\n   - If intent = \"cancel\" → call cancelInterview with this JSON.\n   - If intent = \"reschedule\" → call rescheduleInterview with this JSON.\n   - If intent = \"unknown\" → call the Unknown Action Tool with this JSON.\n\nOUTPUT\n- Return ONLY the JSON object.\n- Then call the selected tool with this JSON as input.\n- No markdown, no prose, no wrapping inside \"output\".\n\nExample Behavior\n\nInput: \"Confirm\"\nOutput:\n{\n  \"intent\": \"confirm\",\n  \"tool_to_use\": \"ConfirmInterview\",\n  \"candidate_number\": \"+923001234567\",\n  \"original_message\": \"Confirm\",\n  \"additional_info\": \"\"\n}\nThis JSON is passed as input to confirmInterview.\nInput: \"2\"\nOutput:\n  {\n  \"intent\": \"reschedule\",\n  \"tool_to_use\": \"RescheduleInterview\",\n  \"candidate_number\": \"+923001234567\",\n  \"original_message\": \"2\",\n  \"additional_info\": \"slot_choice=2\"\n}\nThis JSON is passed as input to rescheduleInterview.",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        -16,
+        1040
+      ],
+      "id": "644d0554-a178-4468-8642-a175e599d68b",
+      "name": "Interview Reminder Assistant"
+    },
+    {
+      "parameters": {
+        "content": "## Interview Reminder Workflow\nThis workflow runs on a schedule to send automated interview reminders. It begins by retrieving events from Google Calendar and filtering for interview events scheduled to occur within the next 1 or 4 hours. For each matching event, it queries candidate details from the database, while also checking stored entries to prevent sending duplicate reminders. Once validated, it generates personalized reminder messages and delivers them via SMS/WhatsApp. Each successful reminder is logged both in the database (for deduplication tracking) and in a Google Sheet (for reporting and audit). If no upcoming interviews are found, the workflow exits without performing any further action.",
+        "height": 288,
+        "width": 576,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1184,
+        80
+      ],
+      "typeVersion": 1,
+      "id": "36a18131-b49d-4de9-abba-75909e2ed61d",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "arslan@shayansolutions.com",
+          "mode": "list",
+          "cachedResultName": "arslan@shayansolutions.com"
+        },
+        "returnAll": true,
+        "timeMax": "={{ $now.plus({ hours: 5 }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        -1424,
+        112
+      ],
+      "id": "c2530b1d-bac8-48a1-9a2e-ff0d5f0436f8",
+      "name": "Fetch Google Calendar Events",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO sent_reminders (\n  event_id, reminder_type, sent_at, summary, description, phone, start_time, end_time\n)\nVALUES (\n  '{{ $json.id }}',\n  '{{ $json.reminderType }}',\n  now(),\n  '{{ $json.summary }}',\n  '{{ $json.description }}',\n  '{{ $json.candidatePhone }}',\n  '{{ $json.start.dateTime }}',\n  '{{ $json.end.dateTime }}'\n)\nON CONFLICT (event_id, reminder_type) DO NOTHING\nRETURNING *;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -656,
+        112
+      ],
+      "id": "182868b3-4655-4085-94ee-c0be4dc4334f",
+      "name": "Fetch & Store Candidate Details"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fe4e1b97-d3cc-4572-ae90-27c41a8f3043",
+              "leftValue": "={{ $json.sent_at }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -464,
+        112
+      ],
+      "id": "26cde4dc-3944-464e-a9bc-94a9f12d0ab2",
+      "name": "Condition → Do Any Reminders Need Sending?"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const ev = $json;\n\n// ---- Candidate name: after the last \" - \" in summary ----\nlet candidateName = 'Candidate';\nif (ev.summary) {\n  const parts = ev.summary.split('-');\n  candidateName = (parts[parts.length - 1] || '').trim() || 'Candidate';\n}\n\n// ---- Position (fallbacks safe) ----\nconst position =\n  ev.description?.match(/Position:\\s*([^\\n<]+)/i)?.[1]?.trim() ||\n  (ev.summary?.replace(/[-–].*$/, '').replace(/Interview/i, '').trim() || 'Interview');\n\n// ---- Pick ONE meeting link only (dedupe + preference) ----\nconst desc = ev.description || '';\nconst urlRegex = /(https?:\\/\\/[^\\s<>\"')]+)/g;\nconst fromDesc = desc.match(urlRegex) || [];\nconst candidates = [ev.hangoutLink, ...fromDesc].filter(Boolean);\n\n// unique list\nconst unique = [...new Set(candidates)];\n\n// preference order\nconst meetingLink =\n  unique.find(u => u.includes('meet.google.com')) ||\n  unique.find(u => u.includes('zoom.us')) ||\n  unique.find(u => u.includes('teams.microsoft.com')) ||\n  unique[0] || '';\n\n// ---- Times formatted in PKT (or event TZ if set) ----\nconst eventTime = new Date(ev.start_time || ev.start?.dateTime || ev.date);\nconst timeZone = ev.start?.timeZone || 'Asia/Karachi';\n\nconst timeStr = eventTime.toLocaleTimeString('en-US', { \n  timeZone, \n  hour: 'numeric', \n  minute: '2-digit', \n  hour12: true \n});\n\nconst dateStr = eventTime.toLocaleDateString('en-GB', { \n  timeZone, \n  day: 'numeric', \n  month: 'short', \n  year: 'numeric' \n});\n\n// ---- Reminder timeframe ----\nlet timeframe = '';\nif (ev.reminder_type === '4_hour') timeframe = '4 hours';\nelse if (ev.reminder_type === '1_hour') timeframe = '1 hour';\nelse timeframe = ''; // fallback\n\n// ---- Phone ----\nconst candidatePhone =\n  ev.phone ||\n  ev.extendedProperties?.private?.phone ||\n  '';\n\n// ---- Organizer name ----\nconst orgName = ev.organizer?.displayName || 'HR Team';\n//\nconst interviewer =\n  ev.description?.match(/Interviewer:\\s*([^\\n<]+)/i)?.[1]?.trim() || '';\n\n// ---- Return all fields separately ----\nreturn {\n  candidateName,\n  timeframe,\n  date: dateStr,\n  time: timeStr,\n  position,\n  meetingLink,\n  candidatePhone,\n  eventId: ev.id,\n  reminder_type: ev.reminder_type,\n  orgName,\n  interviewer\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -128,
+        96
+      ],
+      "id": "0c2b85d6-75a5-4061-a201-6bb722d79eeb",
+      "name": "Generate Personalized Reminder Message"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1ZFuvjZsD_hriafhfCRSD0IGc0q9EnXN49vBCBdhFnps",
+          "mode": "list",
+          "cachedResultName": "AI Attendance (Dev)",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ZFuvjZsD_hriafhfCRSD0IGc0q9EnXN49vBCBdhFnps/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1906664811,
+          "mode": "list",
+          "cachedResultName": "Whatsapp Reminder",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ZFuvjZsD_hriafhfCRSD0IGc0q9EnXN49vBCBdhFnps/edit#gid=1906664811"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Event ID": "={{ $('Filter Events in 1 hour and 4 hour').item.json.id }}",
+            "Status": "sent",
+            "Phone": "={{ $('Filter Events in 1 hour and 4 hour').item.json.candidatePhone }}",
+            "Meeting Details": "={{ $json.meetingLink }}",
+            "Interviewer": "={{ $json.interviewer }}",
+            "Time": "={{ $json.time }}",
+            "Date": "={{ $json.date }}"
+          },
+          "matchingColumns": [
+            "Event ID"
+          ],
+          "schema": [
+            {
+              "id": "Event ID",
+              "displayName": "Event ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Phone",
+              "displayName": "Phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Meeting Details",
+              "displayName": "Meeting Details",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Interviewer",
+              "displayName": "Interviewer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Time",
+              "displayName": "Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        752,
+        80
+      ],
+      "id": "79f7d5b1-2827-4fa3-bd1b-7a1a9951defb",
+      "name": "Log Reminder"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -192,
+        400
+      ],
+      "id": "5db29630-618a-4b3c-bd04-9cb455c9ec70",
+      "name": "No Action Needed"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Cancel an interview by phone number. This tool looks up the candidate’s phone number in Google Sheets, finds the matching Event ID, deletes the event from Google Calendar, and sends a WhatsApp confirmation.\n",
+        "text": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Prompt__User_Message_', ``, 'string') }}",
+        "options": {
+          "systemMessage": "=You are an orchestration agent for interview cancellation.\n\nINPUT\nYou will always receive JSON with:\n- intent\n- candidate_number\n- original_message\n- additional_info\n\nTOOLS\nYou have four tools connected to your Tool port. Call them exactly like this:\n\n1) \"Lookup Candidate Event\"\n   Expects:\n   {\n     \"filter_column\": \"Phone\",\n     \"value\": \"<digits_only_phone>\"\n   }\n   Returns a single matching row object. If multiple rows exist, pick the one with the latest \"Sent Timestamp\".\n   From the row, you must read:\n   - \"Event ID\"  → event_id\n   - \"Phone\"     → sheet_phone\n   - \"Time\"      → time_pk\n\n2) \"Cancel Event in Google Calendar\"\n   Expects:\n   {\n     \"event_id\": \"<event_id>\"\n   }\n   Deletes the calendar event.\n\n3) \"Send Cancellation Message\"\n   Expects:\n   {\n     \"to\": \"<E.164 phone>\",\n     \"text\": \"<message body>\"\n   }\n\n4) \"Remove Event Entry from Sheet\"\n   Expects:\n   {\n     \"event_id\": \"<event_id>\"\n   }\n   Removes the row for that event from the sheet.\n\nTASKS\n1) Normalize candidate_number:\n   - Produce E.164 version e164_phone (must start with \"+\", digits after).\n   - Produce digits-only version digits_phone (remove \"+\", spaces, dashes, parentheses).\n\n2) Call tools in this exact order:\n\n   a) Lookup Candidate Event\n      - Input: { \"filter_column\": \"Phone\", \"value\": digits_phone }\n      - If multiple rows are returned, select the one with the latest \"Sent Timestamp\".\n      - Extract:\n        event_id  ← \"Event ID\"\n        sheet_phone ← \"Phone\"\n        time_pk   ← \"Time\"\n\n   b) Cancel Event in Google Calendar\n      - Input: { \"event_id\": event_id }\n\n   c) Send Cancellation Message (WhatsApp)\n      - Build message using this exact template (preserve newlines/emojis):\n        No problem! ❌ Your interview for today at {time_pk} PKT has been cancelled.\n\n        If you'd like to reschedule for a later date, please contact our HR team directly.\n\n        Thank you for letting us know! 🙏\n\n        Amna - Shayan Solutions\n      - Choose recipient:\n        to_phone = e164_phone if available else (“+” + digits_phone)\n      - Call WhatsApp with:\n        {\n          \"to\": to_phone,\n          \"text\": \"<the message above>\"\n        }\n\n   d) Remove Event Entry from Sheet\n      - Input: { \"event_id\": event_id }\n\nOUTPUT (STRICT)\nReturn ONLY this JSON object (no prose, no markdown, no extra keys):\n{\n  \"candidate_number\": \"<e164_phone>\",\n  \"candidate_number_digits\": \"<digits_phone>\",\n  \"event_id\": \"<event_id>\",\n  \"status\": \"cancelled\",\n  \"confirmation_message\": \"No problem! ❌ Your interview for today at {time_pk} PKT has been cancelled.\\n\\nIf you'd like to reschedule for a later date, please contact our HR team directly.\\n\\nThank you for letting us know! 🙏\\n\\nAmna - Shayan Solutions\"\n}\n\nRULES\n- Do not wrap output in code fences or inside another object like \"output\".\n- If the lookup finds no row, set event_id = \"\" and time_pk = \"\", still send the WhatsApp message using those blanks and continue to return the JSON above.\n- Do not call any tools other than the four specified, and follow the order exactly.\n- Be deterministic; never invent values not returned from tools.\n- Always insert emojis as literal emoji characters (not Unicode codes).\nFor example, use \"✅\" not \"\\u2705\".\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agentTool",
+      "typeVersion": 2.2,
+      "position": [
+        -576,
+        1344
+      ],
+      "id": "bd16f0cb-527e-4224-86ac-905a32416968",
+      "name": "CancelInterview"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1ZFuvjZsD_hriafhfCRSD0IGc0q9EnXN49vBCBdhFnps",
+          "mode": "list",
+          "cachedResultName": "AI Attendance (Dev)",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ZFuvjZsD_hriafhfCRSD0IGc0q9EnXN49vBCBdhFnps/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1906664811,
+          "mode": "list",
+          "cachedResultName": "Whatsapp Reminder",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ZFuvjZsD_hriafhfCRSD0IGc0q9EnXN49vBCBdhFnps/edit#gid=1906664811"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Phone",
+              "lookupValue": "={{ $fromAI('values0_Value', ``, 'string').replace('+','') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        -720,
+        1680
+      ],
+      "id": "bb29a871-0fec-4f3b-8693-079773852317",
+      "name": "Lookup Candidate Event"
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "calendar": {
+          "__rl": true,
+          "value": "arslan@shayansolutions.com",
+          "mode": "list",
+          "cachedResultName": "arslan@shayansolutions.com"
+        },
+        "eventId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Event_ID', ``, 'string') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "typeVersion": 1.3,
+      "position": [
+        -560,
+        1680
+      ],
+      "id": "067caef0-196b-4c9c-88b2-7e2b46d09eaf",
+      "name": "Cancel Event in Google Calendar"
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "documentId": {
+          "__rl": true,
+          "value": "1ZFuvjZsD_hriafhfCRSD0IGc0q9EnXN49vBCBdhFnps",
+          "mode": "list",
+          "cachedResultName": "AI Attendance (Dev)",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ZFuvjZsD_hriafhfCRSD0IGc0q9EnXN49vBCBdhFnps/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1906664811,
+          "mode": "list",
+          "cachedResultName": "Whatsapp Reminder",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ZFuvjZsD_hriafhfCRSD0IGc0q9EnXN49vBCBdhFnps/edit#gid=1906664811"
+        },
+        "startIndex": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Start_Row_Number', ``, 'number') }}",
+        "numberToDelete": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Number_of_Rows_to_Delete', ``, 'number') }}"
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        -240,
+        1680
+      ],
+      "id": "3e119b1b-9f3a-4328-bed0-337e8f536258",
+      "name": "Remove Event Entry from Sheet"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-3.5-turbo",
+          "mode": "list",
+          "cachedResultName": "gpt-3.5-turbo"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -736,
+        1456
+      ],
+      "id": "8dd6b643-df97-4525-a762-fb57efcc93e2",
+      "name": "OpenAI"
+    },
+    {
+      "parameters": {
+        "toolDescription": "=",
+        "text": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Prompt__User_Message_', ``, 'string') }}",
+        "options": {
+          "systemMessage": "=You are an orchestration agent for interview rescheduling.\n\nINPUT\nYou will always receive JSON with:\n- intent\n- candidate_number\n- original_message\n- additional_info        // may contain \"slot_choice=N\"\n\nTOOLS\nYou have these tools connected to your Tool port:\n\n1) \"slots\"\n   // returns: [{ \"available_slots\": [ { \"display\": \"...\", \"start\": \"...Z\", \"end\": \"...Z\" }, ... ] }]\n\n2) \"Lookup Candidate_Eventt\"\n   // input:  { \"candidate_number_digits\": \"<digits_only>\" }\n   // output: { \"Event ID\": \"...\", \"available_slots\": [ ... ] , ... }  // last offered slots may be present\n\n3) \"Update Event in Google Calendar\"\n   // input:  { \"event_id\": \"<old_event_id>\", \"new_start\": \"<ISO>\", \"new_end\": \"<ISO>\", \"summary\": \"Interview\" }\n   // output: { \"new_event_id\": \"...\" }\n\n4) \"Send Messages\"\n   // input:  { \"to\": \"<E.164>\", \"text\": \"<message body>\" }\n\n5) \"Update Event Entry in Sheet\"\n   // input:  { \"event_id\": \"<new_event_id>\", \"candidate_number_digits\": \"<digits_only>\", \"confirmed_slot\": \"<display>\" }\n- When updating in sheet 'Time' field must be updated with the starting time of event in 12-hour format like(1:00 PM, 2:00 PM etc) and 'Date' field should be updated with this (01 Oct, 2025) etc\n\nTASKS\n\nA) Normalize candidate_number\n- e164 = ensure it starts with \"+\" (if missing, prepend \"+\"). Do not invent country codes.\n- digits = remove \"+\", spaces, punctuation.\n\nB) Determine Mode\n- If additional_info contains \"slot_choice=N\" → mode = \"commit\", choice = N.\n- Else if original_message is exactly a number N matching a slot index → mode = \"commit\", choice = N.\n- Else if original_message contains any number (e.g., \"1\", \"2\", \"3\") that matches a slot index → mode = commit, choice = N.\n- This applies even if the number is embedded in text like \"slot 1\", \"I choose 2\", \"go with 3rd\". Extract the integer.\n- Else if original_message contains a specific date/day/time (free text) → mode = \"commit\" with choice = \"OTHER\", and include the free-text in analysis.\n- Else → mode = \"offer\".\n\n––––––––––––––––––––––––––––––––––––––––––\nCASE 1: mode = \"offer\"\n\n1) Call \"slots\".\n   - Read the first element’s \"available_slots\" array.\n   - Sort by \"start\" ascending (ISO timestamps).\n\n2) Build WhatsApp message EXACTLY in this format (preserve newlines/emojis):\nNo worries! 📅  Here are available interview slots:\n\n1. {display of slot 1}\n2. {display of slot 2}\n3. {display of slot 3}\n4. {display of slot 4}\n5. {display of slot 5}\n\nReply with the number of your preferred slot (e.g., \"1\" for first option).\n\nAmna - Shayan Solutions\n\n3) Call \"Send Messages\" with:\n   { \"to\": e164, \"text\": \"<message above>\" }\n\n4) Return ONLY this JSON object:\n{\n  \"candidate_number\": \"<e164>\",\n  \"candidate_number_digits\": \"<digits>\",\n  \"status\": \"offer\",\n  \"slots_sorted\": true,\n  \"slots_sent\": true,\n  \"whatsapp_message\": \"<message above>\"\n}\n\n––––––––––––––––––––––––––––––––––––––––––\nCASE 2: mode = \"commit\"\n\n1) Call \"Lookup Candidate_Eventt\" with:\n   { \"candidate_number_digits\": digits }\n   - Read \"Event ID\" → old_event_id.\n   - If it also returns \"available_slots\", use that list; otherwise call \"slots\" to get a fresh list.\n\n2) Resolve the chosen slot:\n   - If choice is a number N: use the N-th slot (1-based) from the current available_slots list.\n   - If choice is \"OTHER\" with free text: set confirmed_slot.display = free text, and leave start/end empty strings.\n\n3) If confirmed_slot has start/end:\n   - Call \"Update Event in Google Calendar\" with:\n     { \"event_id\": old_event_id, \"new_start\": confirmed_slot.start, \"new_end\": confirmed_slot.end, \"summary\": \"Interview\" }\n   - Read \"new_event_id\".\n   - Then call \"Update Event Entry in Sheet\" with:\n     { \"event_id\": new_event_id, \"candidate_number_digits\": digits, \"confirmed_slot\": confirmed_slot.display }\n\n4) Build WhatsApp confirmation message EXACTLY in this format (preserve newlines/emojis):\n✅ Your interview has been rescheduled for {confirmed_slot.display}. Thank you!\n\nAmna - Shayan Solutions\n\n5) Call \"Send Messages\" with:\n   { \"to\": e164, \"text\": \"<message above>\" }\n\n6) Return ONLY this JSON object:\n{\n  \"candidate_number\": \"<e164>\",\n  \"candidate_number_digits\": \"<digits>\",\n  \"status\": \"commit\",\n  \"analysis\": \"Candidate picked slot <N or OTHER>. Calendar updated and sheet saved successfully.\",\n  \"confirmed_slot\": \"<confirmed_slot.display>\",\n  \"whatsapp_message\": \"✅ Your interview has been rescheduled for <confirmed_slot.display>. Thank you!\",\n  \"confirmation_message\": \"✅ Candidate slot committed and confirmed.\"\n}\n\nRULES\n- Call tools exactly in the sequences above for each case; one call per tool.\n- Do not invent slots; use the \"available_slots\" array structure:\n  [ { \"display\": \"...\", \"start\": \"ISO\", \"end\": \"ISO\" }, ... ]\n- If an index N is out of range, switch to offer mode automatically.\n- Output only the single JSON object for the active case; no markdown, no code fences.\n- Once workdone stop the workflow.\n- Always insert emojis as literal emoji characters (not Unicode codes).\nFor example, use \"✅\" not \"\\u2705\".\n\n\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agentTool",
+      "typeVersion": 2.2,
+      "position": [
+        816,
+        1376
+      ],
+      "id": "06d215c5-f3c8-4135-8744-b14d0171f2cd",
+      "name": "RescheduleInterview"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1ZFuvjZsD_hriafhfCRSD0IGc0q9EnXN49vBCBdhFnps",
+          "mode": "list",
+          "cachedResultName": "AI Attendance (Dev)",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ZFuvjZsD_hriafhfCRSD0IGc0q9EnXN49vBCBdhFnps/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1906664811,
+          "mode": "list",
+          "cachedResultName": "Whatsapp Reminder",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ZFuvjZsD_hriafhfCRSD0IGc0q9EnXN49vBCBdhFnps/edit#gid=1906664811"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Phone",
+              "lookupValue": "={{ $fromAI('values0_Value', ``, 'string').replace('+','') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        1232,
+        1712
+      ],
+      "id": "d0ee40df-296f-4102-9920-78f76a57bc96",
+      "name": "Lookup Candidate_Event"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "calendar": {
+          "__rl": true,
+          "value": "arslan@shayansolutions.com",
+          "mode": "list",
+          "cachedResultName": "arslan@shayansolutions.com"
+        },
+        "eventId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Event_ID', ``, 'string') }}",
+        "useDefaultReminders": false,
+        "updateFields": {
+          "end": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('End', ``, 'string') }}",
+          "start": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Start', ``, 'string') }}"
+        }
+      },
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "typeVersion": 1.3,
+      "position": [
+        1376,
+        1712
+      ],
+      "id": "aacdd019-79d1-4941-be2d-f2318edd0cf6",
+      "name": "Update Event in Google Calendar"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1ZFuvjZsD_hriafhfCRSD0IGc0q9EnXN49vBCBdhFnps",
+          "mode": "list",
+          "cachedResultName": "AI Attendance (Dev)",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ZFuvjZsD_hriafhfCRSD0IGc0q9EnXN49vBCBdhFnps/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1906664811,
+          "mode": "list",
+          "cachedResultName": "Whatsapp Reminder",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ZFuvjZsD_hriafhfCRSD0IGc0q9EnXN49vBCBdhFnps/edit#gid=1906664811"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Event ID": "={{ $fromAI('Event_ID__using_to_match_', ``, 'string') }}",
+            "Phone": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Phone', ``, 'string') }}",
+            "Status": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Status', ``, 'string') }}",
+            "Interviewer": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Interviewer', ``, 'string') }}",
+            "Date": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Date', ``, 'string') }}",
+            "Time": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Time', ``, 'string') }}"
+          },
+          "matchingColumns": [
+            "Event ID"
+          ],
+          "schema": [
+            {
+              "id": "Event ID",
+              "displayName": "Event ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Phone",
+              "displayName": "Phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Meeting Details",
+              "displayName": "Meeting Details",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Interviewer",
+              "displayName": "Interviewer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Time",
+              "displayName": "Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        1536,
+        1712
+      ],
+      "id": "8a05a89c-f777-4364-8a26-4e4a43756708",
+      "name": "Update Event Entry in Sheet"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "mf3xhr1ROBEYvrDh",
+          "mode": "list",
+          "cachedResultName": "Slots_Generation"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        960,
+        1712
+      ],
+      "id": "e615a779-ce65-4345-bd3c-788599ae6a9c",
+      "name": "slots"
+    },
+    {
+      "parameters": {
+        "multipleMethods": true,
+        "path": "whatsapp-event1",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1840,
+        1040
+      ],
+      "id": "ee661ee9-3714-442b-bda2-a361804d58e4",
+      "name": "Webhook",
+      "webhookId": "16ff06f1-cc85-486b-a53b-0d72573f5c57",
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a6d8e12b-03b8-4b7e-9131-4e2c3942ab60",
+              "leftValue": "={{ $json.query['hub.mode'] }}",
+              "rightValue": "subscribe",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "84c98ba3-f792-4bc3-93c4-a481e899e653",
+              "leftValue": "={{ $json.query['hub.verify_token'] }}",
+              "rightValue": "whatsapp1",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1856,
+        1408
+      ],
+      "id": "e0a9f662-a373-4285-8c07-79c7fa0ff5be",
+      "name": "If"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -1296,
+        1760
+      ],
+      "id": "418d7096-2921-4a1b-932f-a04a36ce2d37",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.query[\"hub.challenge\"] }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/pain"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        -1392,
+        1392
+      ],
+      "id": "23075c60-95f6-4f09-83f2-6122d046f14e",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\n\n// Default fields\nlet phone = null;\nlet text = null;\nlet action = \"unknown\";\nlet messageId = null;\n\n// --- Handle inbound messages ---\nconst msg = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];\nif (msg) {\n  phone = msg.from;\n  text = msg.text?.body || null;\n  messageId = msg.id;\n\n  if (text) {\n    const lower = text.toLowerCase();\n    if (lower.includes(\"confirm\")) action = \"confirm\";\n    else if (lower.includes(\"reschedule\")) action = \"reschedule\";\n    else if (lower.includes(\"cancel\")) action = \"cancel\";\n  }\n}\n\n// --- Handle status updates ---\nconst status = body.entry?.[0]?.changes?.[0]?.value?.statuses?.[0];\nif (status) {\n  phone = status.recipient_id;\n  text = status.status; // e.g. \"sent\", \"delivered\", \"read\", \"failed\"\n  messageId = status.id;\n  action = \"status\";\n}\n\nreturn [\n  {\n    json: {\n      phone,\n      text,\n      action,\n      messageId\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -784,
+        1040
+      ],
+      "id": "96ca5ed7-d17b-427f-8342-b1fbbae6977d",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "=846954805157513",
+        "recipientPhoneNumber": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Recipient_s_Phone_Number', ``, 'string') }}",
+        "textBody": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Text_Body', ``, 'string') }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.whatsAppTool",
+      "typeVersion": 1,
+      "position": [
+        -400,
+        1680
+      ],
+      "id": "adfc5895-d049-4703-9bd6-f399b833e0c1",
+      "name": "Send Cancellation Confirmation",
+      "webhookId": "679d2dc4-b60f-4eb3-99ff-8990cbf7203d"
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "=846954805157513",
+        "recipientPhoneNumber": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Recipient_s_Phone_Number', ``, 'string') }}",
+        "textBody": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Text_Body', ``, 'string') }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.whatsAppTool",
+      "typeVersion": 1,
+      "position": [
+        1088,
+        1712
+      ],
+      "id": "5419c519-1af9-4e11-8002-efaa75acc0ca",
+      "name": "Send Messages",
+      "webhookId": "b84e8efe-9a1c-4850-9f50-bd83a2dd660e"
+    },
+    {
+      "parameters": {
+        "phoneNumberId": "=846954805157513",
+        "recipientPhoneNumber": "={{ $json.candidatePhone }}",
+        "template": "=_reminder_|en_US",
+        "components": {
+          "component": [
+            {
+              "bodyParameters": {
+                "parameter": [
+                  {
+                    "text": "={{ $json.candidateName }}"
+                  },
+                  {
+                    "text": "={{ $json.time }}"
+                  },
+                  {
+                    "text": "={{ $json.meetingLink }}"
+                  },
+                  {
+                    "text": "={{ $json.interviewer }}"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        448,
+        -112
+      ],
+      "id": "b88758c4-f022-404c-b6af-5f6f61fa7378",
+      "name": "reminder_1hour",
+      "webhookId": "51ba86db-10b4-4264-820b-44ddfdb97920"
+    },
+    {
+      "parameters": {
+        "phoneNumberId": "=846954805157513",
+        "recipientPhoneNumber": "={{ $json.candidatePhone }}",
+        "template": "reminder_4_hour|en",
+        "components": {
+          "component": [
+            {
+              "bodyParameters": {
+                "parameter": [
+                  {
+                    "text": "={{ $json.candidateName }}"
+                  },
+                  {
+                    "text": "={{ $json.date }}"
+                  },
+                  {
+                    "text": "={{ $json.time }}"
+                  },
+                  {
+                    "text": "={{ $json.meetingLink }}"
+                  },
+                  {
+                    "text": "={{ $json.interviewer }}"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        464,
+        272
+      ],
+      "id": "83f474f9-11ae-4d9e-9e75-2a78b5bc9798",
+      "name": "reminder_4hours",
+      "webhookId": "36ce3612-a84c-4d8c-8185-ab56fc1219d7"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b53956f5-91f2-4923-8ea7-abb8f269a510",
+              "leftValue": "={{ $json.reminder_type }}",
+              "rightValue": "1_hour",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        112,
+        96
+      ],
+      "id": "9b807011-644a-412e-869a-7cb0e05f8ad3",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-3.5-turbo",
+          "mode": "list",
+          "cachedResultName": "gpt-3.5-turbo"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -80,
+        1520
+      ],
+      "id": "8e0d9e91-42bd-48c3-a0d7-ea4704b0acee",
+      "name": "OpenAI2"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1ZFuvjZsD_hriafhfCRSD0IGc0q9EnXN49vBCBdhFnps",
+          "mode": "list",
+          "cachedResultName": "AI Attendance (Dev)",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ZFuvjZsD_hriafhfCRSD0IGc0q9EnXN49vBCBdhFnps/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1906664811,
+          "mode": "list",
+          "cachedResultName": "Whatsapp Reminder",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ZFuvjZsD_hriafhfCRSD0IGc0q9EnXN49vBCBdhFnps/edit#gid=1906664811"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.7,
+      "position": [
+        112,
+        1680
+      ],
+      "id": "8999a03e-5478-438a-b75d-6cf55449cc56",
+      "name": "Lookup_Sheet"
+    },
+    {
+      "parameters": {
+        "text": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Prompt__User_Message_', ``, 'string') }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=You are an orchestration agent for interview confirmation.\n\nINPUT\nYou will always receive JSON with:\n- intent\n- candidate_number\n- original_message\n- additional_info\n\nTOOLS\n- A WhatsApp tool is connected to your Tool port with the name \"WhatsApp\".\n  It accepts an object with:\n  {\n    \"to\":   \"<recipient phone in E.164 or raw digits>\",\n    \"text\": \"<message body>\"\n  }\n\nTASKS\n1) Read the \"Lookup_Sheet\" and find the row where Phone == candidate_number (exact match).\n   - If no row is found, do nothing (i.e, stop the workflow)\n\n2) From the row, extract these fields exactly as stored:\n   - Meeting Details\n   - Time\n   - Interviewer\n\n3) Compose the confirmation message exactly in this format (preserve newlines/emojis):\nGreat! ✅ Your interview is confirmed for today at {Time} PKT.\n\nQuick Details:\n📍 Meeting Details: {Meeting Details}\n🧑‍💼 Interviewer: {Interviewer}\n\nSee you soon! Best of luck! 🍀\n\nAmna - Shayan Solutions\n\n4) Immediately CALL the tool \"WhatsApp\" with:\n{\n  \"to\":   \"<use the sheet 'Phone' value if present; otherwise use candidate_number>\",\n  \"text\": \"<the message from step 3>\"\n}\n\nRULES\n- Your final action must be the WhatsApp tool call. Do not return prose.\n- Do not wrap the message in code fences or JSON unless required by the tool call.\n- If any extracted field is missing, substitute an empty string \"\" and still send the message.\n- You are an orchestration agent for interview confirmation.\n\nINPUT\nYou will always receive JSON with:\n- intent\n- candidate_number\n- original_message\n- additional_info\n\nTOOLS\n- A WhatsApp tool is connected to your Tool port with the name \"WhatsApp\".\n  It accepts an object with:\n  {\n    \"to\":   \"<recipient phone in E.164 or raw digits>\",\n    \"text\": \"<message body>\"\n  }\n\nTASKS\n1) Read the \"Lookup_Sheet\" and find the row where Phone == candidate_number (exact match).\n   - If no row is found, do nothing (i.e, stop the workflow)\n\n2) From the row, extract these fields exactly as stored:\n   - Meeting Details\n   - Time\n   - Interviewer\n\n3) Compose the confirmation message exactly in this format (preserve newlines/emojis):\nGreat! ✅ Your interview is confirmed for today at {Time} PKT.\n\nQuick Details:\n📍 Meeting Details: {Meeting Details}\n🧑‍💼 Interviewer: {Interviewer}\n\nSee you soon! Best of luck! 🍀\n\nAmna - Shayan Solutions\n\n4) Immediately CALL the tool \"WhatsApp\" with:\n{\n  \"to\":   \"<use the sheet 'Phone' value if present; otherwise use candidate_number>\",\n  \"text\": \"<the message from step 3>\"\n}\n\nRULES\n- Your final action must be the WhatsApp tool call. Do not return prose.\n- Do not wrap the message in code fences or JSON unless required by the tool call.\n- If any extracted field is missing, substitute an empty string \"\" and still send the message.\n- Always insert emojis as literal emoji characters (not Unicode codes).\nFor example, use \"✅\" not \"\\u2705\".\n- Give 'Time' in 12-hr format like 1:00PM, 4:30PM etc\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agentTool",
+      "typeVersion": 2.2,
+      "position": [
+        96,
+        1344
+      ],
+      "id": "1515f275-d39a-4436-8abf-01293948d02d",
+      "name": "ConfirmInterview"
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "=846954805157513",
+        "recipientPhoneNumber": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Recipient_s_Phone_Number', ``, 'string') }}",
+        "textBody": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Text_Body', ``, 'string') }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.whatsAppTool",
+      "typeVersion": 1,
+      "position": [
+        272,
+        1696
+      ],
+      "id": "492b6b43-ac4f-4c6d-9b1d-f510c21d614f",
+      "name": "Whatsapp",
+      "webhookId": "6dd900e5-3399-47db-83b1-0c3e6aa13732"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8c5ee06f-c451-4aed-9571-f9ffb77215f9",
+              "leftValue": "={{ $json.body.entry[0].changes[0].value.messages[0].type}}",
+              "rightValue": "text",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "06d5815f-6a08-4270-b5d6-a208c26ad814",
+              "leftValue": "={{ $json.body.entry[0].changes[0].value.statuses }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "notExists",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "3fc81b20-6428-44e3-9676-ee58b1ec08cc",
+              "leftValue": "={{ Math.floor(Date.now()/1000) - 300 }}",
+              "rightValue": "={{ $json.body.entry[0].changes[0].value.messages[0].timestamp }}",
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1280,
+        1056
+      ],
+      "id": "b8aa21f4-5647-4b47-bcfa-fa5381bfb4d9",
+      "name": "If2"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Code').item.json.messageId }}",
+        "contextWindowLength": 20
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        752,
+        1776
+      ],
+      "id": "5de92104-da7e-420c-9533-2f9d347b2df8",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-3.5-turbo",
+          "mode": "list",
+          "cachedResultName": "gpt-3.5-turbo"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        704,
+        1536
+      ],
+      "id": "9c80f6e6-2f13-47ef-8a68-2f92ef13ac10",
+      "name": "OpenAI Chat Model1"
+    },
+    {
+      "parameters": {
+        "content": "## RescheduleInterview Agent\nThis agent handles rescheduling requests. It generates available slots by analyzing the interviewer’s Google Calendar, presents options to the candidate, and commits the chosen slot. Once confirmed, it updates both Google Calendar and the tracking sheet, ensuring smooth coordination without duplicates.",
+        "height": 416,
+        "width": 496
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        720,
+        1088
+      ],
+      "typeVersion": 1,
+      "id": "81a27b5c-b134-4525-8fd8-e80d0c0f5ccd",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## CancelInterview Agent\nThis agent manages cancellation requests from candidates. It looks up the scheduled event in Google Calendar and the tracking sheet, deletes the events, and sends a confirmation message. It ensures cancelled slots are cleared from both the calendar and records to prevent conflict",
+        "height": 288,
+        "width": 656
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -928,
+        1152
+      ],
+      "typeVersion": 1,
+      "id": "ed42798a-157d-4c32-a043-fed4867a9e00",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## Interviewer Agent\nThis agent acts as the entry point for handling candidate replies. It classifies incoming messages into intents: confirm, cancel, or reschedule and routes them to the appropriate workflow branch. It ensures candidate responses are interpreted correctly before triggering any follow-up action.",
+        "height": 352,
+        "width": 592
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -224,
+        864
+      ],
+      "typeVersion": 1,
+      "id": "7ce43363-ae2f-4eeb-8c04-81b4360e03ad",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "=846954805157513",
+        "recipientPhoneNumber": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Recipient_s_Phone_Number', ``, 'string') }}",
+        "textBody": "=Could you please specify what you want? You can reply CONFIRM, CANCEL, or RESCHEDULE.",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.whatsAppTool",
+      "typeVersion": 1,
+      "position": [
+        1968,
+        1504
+      ],
+      "id": "3144861e-2c4c-408b-b703-76e86fc6865d",
+      "name": "Message",
+      "webhookId": "cb8fe093-7bea-405a-b229-d247e0ad97c0"
+    },
+    {
+      "parameters": {
+        "text": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Prompt__User_Message_', ``, 'string') }}",
+        "options": {
+          "systemMessage": "You are an orchestration agent. Your task is to call the \"Message\" tool attached and asks about the agents."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agentTool",
+      "typeVersion": 2.2,
+      "position": [
+        1712,
+        1328
+      ],
+      "id": "d91e796e-ab98-480b-ad87-33d81bf37e65",
+      "name": "Unknown Action"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-3.5-turbo",
+          "mode": "list",
+          "cachedResultName": "gpt-3.5-turbo"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1680,
+        1520
+      ],
+      "id": "a7cd67af-18ba-4601-8e61-b52063f378c5",
+      "name": "OpenAI Chat Model2"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Google Calendar Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Interview Events": {
+      "main": [
+        [
+          {
+            "node": "Filter Events in 1 hour and 4 hour",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Events in 1 hour and 4 hour": {
+      "main": [
+        [
+          {
+            "node": "Fetch & Store Candidate Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Interview Reminder Assistant",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Google Calendar Events": {
+      "main": [
+        [
+          {
+            "node": "Filter Interview Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch & Store Candidate Details": {
+      "main": [
+        [
+          {
+            "node": "Condition → Do Any Reminders Need Sending?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Condition → Do Any Reminders Need Sending?": {
+      "main": [
+        [
+          {
+            "node": "Generate Personalized Reminder Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Action Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Personalized Reminder Message": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CancelInterview": {
+      "ai_tool": [
+        [
+          {
+            "node": "Interview Reminder Assistant",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Candidate Event": {
+      "ai_tool": [
+        [
+          {
+            "node": "CancelInterview",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancel Event in Google Calendar": {
+      "ai_tool": [
+        [
+          {
+            "node": "CancelInterview",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Event Entry from Sheet": {
+      "ai_tool": [
+        [
+          {
+            "node": "CancelInterview",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "CancelInterview",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RescheduleInterview": {
+      "ai_tool": [
+        [
+          {
+            "node": "Interview Reminder Assistant",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Candidate_Event": {
+      "ai_tool": [
+        [
+          {
+            "node": "RescheduleInterview",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Event in Google Calendar": {
+      "ai_tool": [
+        [
+          {
+            "node": "RescheduleInterview",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Event Entry in Sheet": {
+      "ai_tool": [
+        [
+          {
+            "node": "RescheduleInterview",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "slots": {
+      "ai_tool": [
+        [
+          {
+            "node": "RescheduleInterview",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Interview Reminder Assistant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Cancellation Confirmation": {
+      "ai_tool": [
+        [
+          {
+            "node": "CancelInterview",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Messages": {
+      "ai_tool": [
+        [
+          {
+            "node": "RescheduleInterview",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "reminder_1hour",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "reminder_4hours",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "ConfirmInterview",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup_Sheet": {
+      "ai_tool": [
+        [
+          {
+            "node": "ConfirmInterview",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ConfirmInterview": {
+      "ai_tool": [
+        [
+          {
+            "node": "Interview Reminder Assistant",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Whatsapp": {
+      "ai_tool": [
+        [
+          {
+            "node": "ConfirmInterview",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If2": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "RescheduleInterview",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "RescheduleInterview",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message": {
+      "ai_tool": [
+        [
+          {
+            "node": "Unknown Action",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unknown Action": {
+      "ai_tool": [
+        [
+          {
+            "node": "Interview Reminder Assistant",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Unknown Action",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "92e4fa6429e7ac8f3bde4029c29cc7d3b722ba7118c2871b2c6779ab88fff532"
+  }
+}

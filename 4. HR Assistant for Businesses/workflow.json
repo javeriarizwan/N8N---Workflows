@@ -1,0 +1,889 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are given a list of events, each event has the following fields:\n\n* Date (in MM/DD/YYYY format)\n* Event Name\n* Day (e.g., Monday, Tuesday, etc.)\n* Public Holiday (either \"Yes\" or \"No\")\n* Comments (optional)\n* Status (either \"Yes\" or \"No\")\n* Add newline in messages as \\\\n\n\nThe current date is  {{ $json['Readable date'] }}.\nThe date format is MM/DD/YYYY.\n---\n\nYour Tasks:\n\n1. Parse each event's Date field as an actual date.\n2. Filter the events to include only those where: \n- The Date falls between {{ $json['Readable date'] }} and 14 days after that date, inclusive \nAND\n- The Status field is \"No\"\n3. Strictly follow rule 2.\n4. From the filtered list, select the single earliest event by date.\n5. Based on the \"Public Holiday\" field:\n   - If **\"Yes\"**, assign it to **Group A (Public Holiday)**\n   - If **\"No\"**, assign it to **Group B (Internal Event)**\n6. For the selected event, generate an object with:\n   - Date  \n   - Event Name  \n   - Day  \n   - Public Holiday  \n   - Comments  \n   - formattedDate (e.g., \"Friday, September 5th 2025\")  \n   - teamMessage  \n   - clientMessage  \n\n---\n\nEmoji Rules:\n\nUse relevant emojis for better engagement and clarity:\n- Public Holiday: 📢, 📅, 🏛️, 💤  \n- Internal Events: 🎉, 📅, 🏏 (Cricket), 🍽️ (Lunch), 🧠 (Training), etc.\n\nEmoji Placement:\n- Add at the **start** of subject/reminder lines\n- Optionally surround event names\n- Keep it professional and minimal\n\n---\n\nMessage Templates:\n\n### 🏛️ Team Message – Public Holiday (Group A)\n\nIf the event is on **Monday–Friday**:\n📢 *Reminder: Upcoming Public Event – Event Name* \n\nPlease be informed that, in observance of *Event Name* on formattedDate, our office will remain closed for the entire day. Kindly plan accordingly. Please notify clients about the day off in advance to ensure smooth communication.\n\nIf the event is on **Saturday or Sunday**:\n📢 *Reminder: Upcoming Public Event – Event Name*\n\nPlease be informed that, in observance of *Event Name* on formattedDate, our office will remain closed for the entire day.\n\n---\n\n### 🎉 Team Message – Internal Event (Group B)\n\n🎉 *Reminder: Upcoming Internal Event – Event Name*  \n\nPlease note that the *Event Name* is scheduled for *formattedDate*. Kindly manage your work schedule accordingly to participate and make the most of this fun event.\n\n---\n\n### 📨 Client Message – All Events\n\nSubject: Service Update – Event Name  \n\nDear [Client Name],  \nWe wanted to give you advance notice that our team will be participating in *Event Name* on *formattedDate*.  \nWhile we'll maintain essential services, there may be slight delays in response times during this period. We appreciate your understanding and will ensure any urgent matters are handled promptly.  \n\nThank you for your continued partnership.  \nBest regards,\n---\n\nOutput Format:\n\nIf the event is a **Public Holiday**:\n```json\n{\n  \"publicHolidayEvents\": [ { ...event object with teamMessage and clientMessage } ],\n  \"internalEvents\": []\n}\nIf the event is an Internal Event:\n{\n  \"publicHolidayEvents\": [],\n  \"internalEvents\": [ { ...event object with teamMessage and clientMessage } ]\n}\nIf no valid events, return:\n{\n  \"publicHolidayEvents\": [],\n  \"internalEvents\": []\n}\n\nRespond only with the final JSON object and nothing else.",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        -1904,
+        272
+      ],
+      "id": "fd2394b2-c77c-4091-a87a-5c41369444a1",
+      "name": "HR Assistant System"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-5",
+          "mode": "list",
+          "cachedResultName": "gpt-5"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -2048,
+        512
+      ],
+      "id": "fc6c8d2c-5dbb-4977-999d-26e1b0057413",
+      "name": "OpenAI Chat Model2"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "your id",
+          "mode": "list",
+          "cachedResultName": "Shayan Solutions Events List",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/your id/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/your id/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.6,
+      "position": [
+        -1808,
+        576
+      ],
+      "id": "e45ffe9e-2bcc-4155-91e4-b3ed5aef4776",
+      "name": "Read Event Details"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1d5AP1qsL7eGYP4eIvd5CwU7hdrWr1rtBT-qgWXOyeHA",
+          "mode": "list",
+          "cachedResultName": "Employee Data",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1d5AP1qsL7eGYP4eIvd5CwU7hdrWr1rtBT-qgWXOyeHA/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1d5AP1qsL7eGYP4eIvd5CwU7hdrWr1rtBT-qgWXOyeHA/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.6,
+      "position": [
+        -976,
+        256
+      ],
+      "id": "10a16947-d9b2-4e8c-995f-321e055418fa",
+      "name": "Read Employee Data"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "your id",
+          "mode": "list",
+          "cachedResultName": "Shayan Solutions Events List",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/your id/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/your id/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Status": "=Yes",
+            "Event Name": "={{ $json.eventName }}"
+          },
+          "matchingColumns": [
+            "Event Name"
+          ],
+          "schema": [
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Event Name",
+              "displayName": "Event Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Day",
+              "displayName": "Day",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Public Holiday",
+              "displayName": "Public Holiday",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Comments",
+              "displayName": "Comments",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.6,
+      "position": [
+        -64,
+        256
+      ],
+      "id": "34c016e8-e602-412a-b2b7-f2437061ea7f",
+      "name": "Update Event Details Status"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -1104,
+        528
+      ],
+      "id": "bc0ad2cb-2499-4436-92c4-374b06fb674f",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 11,
+              "triggerAtMinute": 30
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -2160,
+        272
+      ],
+      "id": "78e5f2fc-1c92-4ea5-b6d5-53bfbf6de30d",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -960,
+        1104
+      ],
+      "id": "5456184f-199c-46af-b00d-5827cecc2475",
+      "name": "No Operation, do nothing1"
+    },
+    {
+      "parameters": {
+        "content": "## Schedule Trigger \nEvery morning at 11:30 AM, this node starts the workflow to check for upcoming HR events.",
+        "height": 352,
+        "width": 256,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -2240,
+        80
+      ],
+      "typeVersion": 1,
+      "id": "ef19e3f6-26cb-4e3f-a8c5-e071135fc8f2",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## HR Assistant System \nActs as the core decision-maker. It uses the connected OpenAI Chat Model and event data to process which events need reminders and which actions to take.",
+        "height": 352,
+        "width": 304,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1952,
+        80
+      ],
+      "typeVersion": 1,
+      "id": "9d917490-3890-496c-8d59-3e4c0928a014",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "jsCode": "for (const item of $input.all()) {\n  const data = JSON.parse(item.json.output);\n\n  // Initialize fields\n  item.json.eventName = \"\";\n  item.json.teamMessage = \"\";\n  item.json.clientMessage = \"\";\n  item.json.eventDay = \"\";\n\n  let event = null;\n\n  // Check if it's a public holiday event\n  if (data.publicHolidayEvents && data.publicHolidayEvents.length > 0) {\n    event = data.publicHolidayEvents[0];\n  }\n  // Or check internal event\n  else if (data.internalEvents && data.internalEvents.length > 0) {\n    event = data.internalEvents[0];\n  }\n\n  // If event exists, populate fields\n  if (event) {\n    item.json.eventName = event[\"Event Name\"] || \"\";\n    item.json.teamMessage = event.teamMessage || \"\";\n    item.json.eventDay = event[\"Day\"] || \"\";\n\n    // Only assign clientMessage if the event is NOT on Saturday or Sunday\n    const day = (event[\"Day\"] || \"\").toLowerCase();\n    if (day !== \"saturday\" && day !== \"sunday\") {\n      item.json.clientMessage = event.clientMessage || \"\";\n    }\n  }\n\n  // Optional: remove original output field if not needed\n  // delete item.json.output;\n}\n\nreturn $input.all();\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1568,
+        272
+      ],
+      "id": "3d2f596d-4ec8-45eb-9fa3-789366fa134c",
+      "name": "Event Data Parser"
+    },
+    {
+      "parameters": {
+        "content": "## Event Data Parser \nThis node processes the raw event data from upstream nodes and extracts relevant information for downstream workflow usage.",
+        "height": 352,
+        "width": 224,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1632,
+        80
+      ],
+      "typeVersion": 1,
+      "id": "c36206bd-8e8e-4656-834c-240739098615",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7018fbcb-ea2f-4c0d-a641-74f00183daf6",
+              "leftValue": "={{ $json.eventName }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "eab8e485-686f-45b0-8f6e-15af9bf61877",
+              "leftValue": "={{ $json.teamMessage }}",
+              "rightValue": "={{ $json.teamMessage }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "ee347229-8ead-4875-be8b-aa2d1be3ea8b",
+              "leftValue": "={{ $json.clientMessage }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1312,
+        272
+      ],
+      "id": "1aabcc0e-6915-46fb-ab3d-34aa6e63d20e",
+      "name": "Validate Event Messages"
+    },
+    {
+      "parameters": {
+        "content": "## Validate Event Messages  \nChecks whether the event has a valid name, a team message, and a client message before proceeding.",
+        "height": 352,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1376,
+        80
+      ],
+      "typeVersion": 1,
+      "id": "154ebfe2-d462-4f68-b815-8defc3d4c927",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## Read Employee Data \nFetches the list of employees and their Slack IDs",
+        "height": 352,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1056,
+        80
+      ],
+      "typeVersion": 1,
+      "id": "45fdef7e-589c-407e-a861-526eaa05d187",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7909ee9d-fdd3-49ea-848f-e7598c90199d",
+              "leftValue": "={{ $('Validate Event Messages').item.json.eventDay }}",
+              "rightValue": "Saturday",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "232d2fd2-b5a5-4566-a516-abe76aa05b6e",
+              "leftValue": "={{ $('Validate Event Messages').item.json.eventDay }}",
+              "rightValue": "Sunday",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -688,
+        256
+      ],
+      "id": "157ae6b2-0390-4db6-9a5b-8c7bde789965",
+      "name": "Weekend Event Check"
+    },
+    {
+      "parameters": {
+        "content": "## Weekend Event Check \nChecks if the event falls on a weekend (Saturday or Sunday) to handle client messaging differently.",
+        "height": 352,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -768,
+        80
+      ],
+      "typeVersion": 1,
+      "id": "f99ce4dd-c690-42d5-a583-babe9a417d07",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "content": "## Update Event Details\nUpdates the event status in the sheet (e.g., \"Yes\" or \"No\") to avoid duplicate notifications in future runs.",
+        "height": 352,
+        "width": 272,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -160,
+        80
+      ],
+      "typeVersion": 1,
+      "id": "c3113bf8-15f2-4be3-a473-25010154ee98",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "select": "user",
+        "user": {
+          "__rl": true,
+          "value": "={{ $('Read Employee Data').item.json['Slack ID'] }}",
+          "mode": "id"
+        },
+        "text": "=*@{{ $json.Name }}*\n{{ $('Validate Event Messages').item.json.teamMessage }}\n\nThanks! \n\nHR Assistant\nAmna",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        -400,
+        112
+      ],
+      "id": "214be8f2-3093-4e75-b205-72c0dd2f8290",
+      "name": "Team Message",
+      "webhookId": ""
+    },
+    {
+      "parameters": {
+        "content": "## Team Message \nSend only Team Messages for weekdays.",
+        "height": 352,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -464,
+        -64
+      ],
+      "typeVersion": 1,
+      "id": "0da0c4f2-a4fe-4922-87bc-246787488f49",
+      "name": "Sticky Note7"
+    },
+    {
+      "parameters": {
+        "content": "## Messages\nOther than weekdays send Team Messages along with Client Messages",
+        "height": 368,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -464,
+        336
+      ],
+      "typeVersion": 1,
+      "id": "3569495c-3b6a-48d8-b2dd-2f397fa6211d",
+      "name": "Sticky Note8"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer <SLACK_API_TOKEN>"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"channel\": \"{{ $('Read Employee Data').item.json['Slack ID'] }}\",\n  \"text\": \"Would you like me to generate the client message too?\",\n  \"blocks\": [\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"Do you want me to generate the client message too?\"\n      }\n    },\n    {\n      \"type\": \"actions\",\n      \"block_id\": \"client_message_prompt\",\n      \"elements\": [\n        {\n          \"type\": \"button\",\n          \"text\": {\n            \"type\": \"plain_text\",\n            \"text\": \"Yes\"\n          },\n          \"style\": \"primary\",\n          \"value\": {{ ($('Read Employee Data').item.json.Name + \" \" + $('Validate Event Messages').item.json.clientMessage).toJsonString() }}\n        },\n        {\n          \"type\": \"button\",\n          \"text\": {\n            \"type\": \"plain_text\",\n            \"text\": \"No\"\n          },\n          \"style\": \"danger\",\n          \"value\": \"no_skip\"\n         \n        }\n      ]\n    }\n  ]\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -80,
+        672
+      ],
+      "id": "2fd7d5e9-cda3-4dc0-bae2-3df78b770fe0",
+      "name": "Client Message Prompt",
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "content": "## Client Message Prompt\nSends an interactive Slack message asking the employee whether they want a client message to be generated, with “Yes” and “No” buttons for response.",
+        "height": 368,
+        "width": 272,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -160,
+        464
+      ],
+      "typeVersion": 1,
+      "id": "5246bc47-3b7e-4022-9d12-2afb6c240bb1",
+      "name": "Sticky Note9"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "1aeb9d9a-ed51-442e-a27d-bd4d7a2b3cb1",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -2176,
+        944
+      ],
+      "id": "420e46f5-ebea-4afb-9710-4e778358db86",
+      "name": "Slack Response Parser",
+      "webhookId": ""
+    },
+    {
+      "parameters": {
+        "content": "## Slack Response Parser \nReceives and parses payloads from Slack block actions, capturing user responses from interactive messages (e.g., “Yes” or “No” button clicks).",
+        "height": 272,
+        "width": 288,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -2256,
+        816
+      ],
+      "typeVersion": 1,
+      "id": "bb0d2cd8-c21c-4d46-b6a7-1faad0b6f212",
+      "name": "Sticky Note10"
+    },
+    {
+      "parameters": {
+        "content": "## Parse Slack Action Payload \nExtracts and separates the username and action value from the Slack button payload for downstream processing.",
+        "height": 272,
+        "width": 336,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1920,
+        816
+      ],
+      "typeVersion": 1,
+      "id": "a3574ae4-495a-4fe5-91f3-c5c6c64e09b1",
+      "name": "Sticky Note11"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract the payload string from incoming data\nconst payloadStr = $input.first().json.body.payload;\n\n// Parse the JSON string into an object\nconst payload = JSON.parse(payloadStr);\n\n// Extract full action value\nconst fullValue = payload.actions[0].value;\n\n// Find the index of \"Subject\"\nconst subjectIndex = fullValue.indexOf(\"Subject\");\n\n// Initialize username and actionValue\nlet username = \"\";\nlet actionValue = fullValue;\n\nif (subjectIndex !== -1) {\n  // Extract everything before \"Subject\" as username, trim to clean spaces\n  username = fullValue.substring(0, subjectIndex).trim();\n\n  // Extract from \"Subject\" onwards as actionValue\n  actionValue = fullValue.substring(subjectIndex).trim();\n}\n\n// Return useful info in a new JSON object for further processing\nreturn [{\n  json: {\n    action_id: payload.actions[0].action_id,\n    action_value: actionValue,\n    user_id: payload.user.id,\n    user_name: username,\n    channel_id: payload.channel.id,\n    message_ts: payload.message.ts,\n    response_url: payload.response_url\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1840,
+        944
+      ],
+      "id": "b6cd28e2-3b6e-4251-b290-c66c723bd472",
+      "name": "Parse Slack Action Payload"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ff480cea-ce6a-489e-8727-9b7dc6a3a29b",
+              "leftValue": "={{ $json.action_value }}",
+              "rightValue": "no_skip",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1376,
+        944
+      ],
+      "id": "c7fd11da-3cd7-45bd-b40d-bfc73c586c61",
+      "name": "Message Decision"
+    },
+    {
+      "parameters": {
+        "content": "## Message Decision \nChecks whether the user chose to generate the client message or not.",
+        "height": 272,
+        "width": 272,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1472,
+        816
+      ],
+      "typeVersion": 1,
+      "id": "b565da3e-e748-4bcd-b666-b85784980f4b",
+      "name": "Sticky Note12"
+    },
+    {
+      "parameters": {
+        "select": "user",
+        "user": {
+          "__rl": true,
+          "value": "={{ $json['Slack ID'] }}",
+          "mode": "id"
+        },
+        "text": "=*@{{ $json.Name }}*\n{{ $('Validate Event Messages').item.json.teamMessage }}\n\nThanks!\nHR Assistant\nAmna\n",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        -384,
+        480
+      ],
+      "id": "798abf86-8ada-442c-97eb-b763b94cea7c",
+      "name": "Team Message Along with Client Messages Prompt",
+      "webhookId": ""
+    },
+    {
+      "parameters": {
+        "select": "user",
+        "user": {
+          "__rl": true,
+          "value": "={{ $json.user_id }}",
+          "mode": "id"
+        },
+        "text": "={{ $json.action_value }}\n{{ $json.user_name }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        -560,
+        928
+      ],
+      "id": "50f029e1-5b19-4252-935b-72466dc81e0d",
+      "name": "Client Message",
+      "webhookId": ""
+    },
+    {
+      "parameters": {
+        "content": "## Client Message\nIf action is \"Yes\" send Client Message ",
+        "height": 304,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -624,
+        816
+      ],
+      "typeVersion": 1,
+      "id": "13e39f89-725e-422a-aa4d-82c3dcd2f30e",
+      "name": "Sticky Note13"
+    }
+  ],
+  "connections": {
+    "HR Assistant System": {
+      "main": [
+        [
+          {
+            "node": "Event Data Parser",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "HR Assistant System",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Event Details": {
+      "ai_tool": [
+        [
+          {
+            "node": "HR Assistant System",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Employee Data": {
+      "main": [
+        [
+          {
+            "node": "Weekend Event Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "HR Assistant System",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Event Data Parser": {
+      "main": [
+        [
+          {
+            "node": "Validate Event Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Event Messages": {
+      "main": [
+        [
+          {
+            "node": "Read Employee Data",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Update Event Details Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weekend Event Check": {
+      "main": [
+        [
+          {
+            "node": "Team Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Team Message Along with Client Messages Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Response Parser": {
+      "main": [
+        [
+          {
+            "node": "Parse Slack Action Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Slack Action Payload": {
+      "main": [
+        [
+          {
+            "node": "Message Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message Decision": {
+      "main": [
+        [
+          {
+            "node": "Client Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Team Message Along with Client Messages Prompt": {
+      "main": [
+        [
+          {
+            "node": "Client Message Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "92e4fa6429e7ac8f3bde4029c29cc7d3b722ba7118c2871b2c6779ab88fff532"
+  }
+}

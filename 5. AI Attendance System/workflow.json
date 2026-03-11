@@ -1,0 +1,978 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a system assistant for Shayan Solutions. Your job is to detect whether the user is trying to check in or check out from their message.\n\nUser input: \"{{ $json.messageText }}\"\nSystem timestamp: {{ DateTime.fromSeconds(Number($json.ts)).setZone('Asia/Karachi').toFormat(\"MMM dd, yyyy hh:mm a\") }}\n\nRules:\n1) If the message clearly contains words/phrases related to check in (e.g., \"check in\", \"clock in\", \"start work\") or check out (e.g., \"check out\", \"clock out\", \"leaving work\"), proceed.\n2) If the message is casual or unrelated (e.g., \"hi\", \"hello\", \"how are you\", \"good morning\", \"ok\"), do NOT assume check-in or check-out.\n   - Respond exactly: \"Can you please specify if you want to check in or check out?\"\n3) Time parsing when the user provides a time (must follow exactly):\n   - Accept 12-hour times with optional single-digit minutes, e.g., \"h:m AM/PM\", \"hh:m am/pm\", including \"0:m AM/PM\".\n   - If hour == 0, treat it as 12 (so \"0:9 AM\" => 12:09 AM).\n   - If minutes are a single digit, left-pad with a 0 (e.g., \"5\" => \"05\").\n   - Always format to \"MMM dd, yyyy hh:mm a\" with leading zeros for BOTH hour and minute.\n   - Do NOT swap hour and minute, and do NOT drop the minute.\n   - Examples you MUST match:\n     • \"in 0:9 AM\"  → \"12:09 AM\"\n     • \"in 0:3 pm\"  → \"12:03 PM\"\n     • \"check in 12:5 am\" → \"12:05 AM\"\n     • \"clock out 3:5 pm\" → \"03:05 PM\"\n     • \"in 5 pm\" → \"05:00 PM\"\n4) If no valid user time is provided, use the system timestamp and format it exactly as \"MMM dd, yyyy hh:mm a\" with leading zeros for hour and minute.\n5) Output format:\n   - If checking in:  \"Welcome to Shayan Solutions. You have Clocked In at [TIME]\"\n   - If checking out: \"Good Bye: You have Clocked Out at [TIME]\"\n6) Return only one final response. No explanation. No additional comments.\n",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        -704,
+        32
+      ],
+      "id": "c46e4992-f157-4762-953c-047a5992430f",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1",
+          "mode": "list",
+          "cachedResultName": "gpt-4.1"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -736,
+        320
+      ],
+      "id": "7b0b12ad-8239-4412-ab95-dceaee28697d",
+      "name": "OpenAI Chat Model"
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C03FAE1LNKZ",
+          "mode": "list",
+          "cachedResultName": "attendance-portal"
+        },
+        "text": "=<@{{ $('Execute Workflow').item.json.slackID }}>{{ $('AI Agent').item.json.output }}",
+        "otherOptions": {
+          "includeLinkToWorkflow": false
+        }
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1392,
+        96
+      ],
+      "id": "22f5af29-3715-43bd-b87f-0f1499c7cfc9",
+      "name": "Send a message",
+      "webhookId": "861fde00-68cb-437f-b293-18f539b2df72",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b9dd8449-c530-402b-aa7d-f8d73e28a611",
+              "name": "type",
+              "value": "={{ ($json.output.match(/Clocked\\s+(In|Out)/) || [])[1].toLowerCase() || null  }}",
+              "type": "string"
+            },
+            {
+              "id": "520f1385-58ce-4d9f-af18-376d88530ad9",
+              "name": "date",
+              "value": "={{\n(() => {\n\t// Grab \"Jul 11, 2025\" after the word “at”\n\tconst m = $json.output.match(/at\\s+([A-Za-z]{3}\\s+\\d{1,2},\\s+\\d{4})/);\n\tif (!m) return '';\n\n\t// Use Luxon (built into n8n) for re‑formatting\n\treturn DateTime\n\t\t.fromFormat(m[1], 'LLL d, yyyy')   // parse \"Jul 11, 2025\"\n\t\t.toFormat('dd-MM-yyyy');           // → \"11-07-2025\"\n})()\n}}",
+              "type": "string"
+            },
+            {
+              "id": "663397d1-2aa4-4ca1-ad51-a008b895abe4",
+              "name": "time",
+              "value": "={{\n(() => {\n\t// Grab \"01:55 PM\" that follows the date\n\tconst m = $json.output.match(/at\\s+[A-Za-z]{3}\\s+\\d{1,2},\\s+\\d{4}\\s+(\\d{2}:\\d{2}\\s+[AP]M)/);\n\treturn m ? m[1] : '';\n})()\n}}",
+              "type": "string"
+            },
+            {
+              "id": "1dbbe8e9-9066-4e4e-a7aa-04b1483192f4",
+              "name": "match_key",
+              "value": "={{ \n  (() => {\n    const slackId = $('Execute Workflow').item.json.slackID\n\n    const m = $json.output.match(/at\\s+([A-Za-z]{3}\\s+\\d{1,2},\\s+\\d{4})/);\n    if (!m) return `${slackId}-`; // return partial if date not found\n\n    const dateFormatted = DateTime\n      .fromFormat(m[1], 'LLL d, yyyy')\n      .toFormat('dd-MM-yyyy');\n\n    return `${slackId}-${dateFormatted}`;\n  })()\n}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -400,
+        112
+      ],
+      "id": "5105296f-3f80-4e10-8eb0-ece6ff8c7669",
+      "name": "Extract Data From Response",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "your id",
+          "mode": "list",
+          "cachedResultName": "Employee Data",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/your id/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/your id/edit#gid=0"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Slack ID",
+              "lookupValue": "={{ $('Execute Workflow').item.json.slackID }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.6,
+      "position": [
+        896,
+        464
+      ],
+      "id": "ebdc5f01-612c-4b61-b699-d09ac7945131",
+      "name": "Get Employee Data"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "your id",
+          "mode": "list",
+          "cachedResultName": "AI Attendance",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/your id/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $('sheetName').item.json.sheetName }}",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Name",
+              "lookupValue": "={{ $json.Name }}"
+            },
+            {
+              "lookupColumn": "Email",
+              "lookupValue": "={{ $json['Email Address'] }}"
+            },
+            {
+              "lookupColumn": "Date",
+              "lookupValue": "={{ $('Merge').item.json.date }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.6,
+      "position": [
+        1072,
+        464
+      ],
+      "id": "71b20d6c-e3f8-49cb-9aca-2d1e986a928b",
+      "name": "Match Attendance Record",
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "your id",
+          "mode": "list",
+          "cachedResultName": "AI Attendance",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/your id/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ DateTime.now().setZone('Asia/Karachi').toFormat('LLLL yyyy') }}",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Match Key": "={{ $('Merge').item.json.match_key }}",
+            "Slack ID": "={{ $('Get Employee Data').item.json['Slack ID'] }}",
+            "Name": "={{ $('Get Employee Data').item.json.Name }}",
+            "Date": "={{ $('Merge').item.json.date }}",
+            "Check In": "={{  $('Extract Data From Response').item.json.type == 'in' ? $('Extract Data From Response').item.json.time : $json['Check In'] || '' }}",
+            "Check Out": "={{ $('Extract Data From Response').item.json.type == 'out' ? $('Extract Data From Response').item.json.time : $json['Check Out'] || '' }}",
+            "Comments": "={{ $('AI Agent').item.json.output }}",
+            "Email": "={{ $('Get Employee Data').item.json['Email Address'] }}"
+          },
+          "matchingColumns": [
+            "Match Key"
+          ],
+          "schema": [
+            {
+              "id": "Slack ID",
+              "displayName": "Slack ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Name",
+              "displayName": "Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Check In",
+              "displayName": "Check In",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Check Out",
+              "displayName": "Check Out",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Comments",
+              "displayName": "Comments",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Match Key",
+              "displayName": "Match Key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.6,
+      "position": [
+        1232,
+        464
+      ],
+      "id": "230f7c85-db0b-4868-b019-4350eb837334",
+      "name": "Update Attendance Record"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "sipC3kvT7xvAB35p",
+          "mode": "list",
+          "cachedResultName": "Slack Message Received"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -928,
+        32
+      ],
+      "id": "96ddd0d5-53f9-45a5-aef2-da640a50d8d1",
+      "name": "Execute Workflow"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5b52f594-46ea-451a-b967-58b492b49c1e",
+              "leftValue": "={{ $json.date }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "520e8fe0-3e17-491a-b1f6-c4f4524aa920",
+              "leftValue": "={{ $json.time }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        464,
+        112
+      ],
+      "id": "58ff34b6-13c8-4a3a-a2c4-93742e364e97",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "documentId": {
+          "__rl": true,
+          "value": "your id",
+          "mode": "list",
+          "cachedResultName": "AI Attendance",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/your id/edit?usp=drivesdk"
+        },
+        "title": "={{ $('sheetName').item.json.sheetName }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.6,
+      "position": [
+        752,
+        208
+      ],
+      "id": "cf47c369-1abd-4823-bbdf-d189d29f2ecc",
+      "name": "Create sheet"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "your id",
+          "mode": "list",
+          "cachedResultName": "AI Attendance",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/your id/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' }) }}",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Slack ID",
+              "displayName": "Slack ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Name",
+              "displayName": "Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Check In",
+              "displayName": "Check In",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Check Out",
+              "displayName": "Check Out",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Comments",
+              "displayName": "Comments",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Match Key",
+              "displayName": "Match Key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.6,
+      "position": [
+        1152,
+        208
+      ],
+      "id": "c264dcd6-724a-4853-8a3b-07742edc70a1",
+      "name": "Append or update row in sheet"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "16a39bd2-80be-47c2-8e21-bf24f9595fb9",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        368
+      ],
+      "id": "75b9dfc8-da32-4c7c-bfc3-8bff235a24fc",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"Slack ID\": \"\",\n  \"Name\": \"\",\n  \"Email\": \"\",\n  \"Date\": \"\",\n  \"Check In\": \"\",\n  \"Check Out\": \"\",\n  \"Comments\": \"\",\n  \"Match Key\": \"\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        960,
+        208
+      ],
+      "id": "aaaf86f6-9bb5-430f-842b-fcb167429b3b",
+      "name": "Sheet Seed Data"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "your id",
+          "mode": "list",
+          "cachedResultName": "AI Attendance",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/your id/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' }) }}",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.6,
+      "position": [
+        304,
+        368
+      ],
+      "id": "4d9f2d40-d55b-4ef2-be5e-a394270d06d2",
+      "name": "Check Sheet Exists",
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const sheetName = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });\nreturn [{ json: { sheetName }}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        368
+      ],
+      "id": "d48e7e88-15c5-4d07-82e1-01e19ea6a4f9",
+      "name": "sheetName"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        720,
+        464
+      ],
+      "id": "00769507-fff5-4ea2-90c1-0165e7240f36",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1a599645-a266-48ff-8df3-7ca7e54e081b",
+              "leftValue": "={{ $json.type }}",
+              "rightValue": "=out",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "4c2f037a-4e39-442c-9c70-84059fd273d8",
+              "leftValue": "={{ Number(DateTime.fromFormat($json.time, \"hh:mm a\").toFormat(\"HHmm\")) }}",
+              "rightValue": 900,
+              "operator": {
+                "type": "number",
+                "operation": "lte"
+              }
+            },
+            {
+              "id": "e12c7e0e-b15a-4ffb-aafd-12e983b6a6ab",
+              "leftValue": "={{ Number(DateTime.fromFormat($json.time, \"hh:mm a\").toFormat(\"HHmm\")) }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -192,
+        112
+      ],
+      "id": "c74aafc9-3f89-47ba-9de1-bb524a99d440",
+      "name": "If2"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "527a47a1-84ca-42ad-bdf5-ba7772fd7580",
+              "name": "date",
+              "value": "={{ DateTime.fromFormat($json.date, \"dd-MM-yyyy\").minus({ days: 1 }).toFormat(\"dd-MM-yyyy\") }}",
+              "type": "string"
+            },
+            {
+              "id": "7698b83b-908e-4648-909d-53219ad93765",
+              "name": "match_key",
+              "value": "={{ `${$('Execute Workflow').item.json.slackID}-${DateTime.fromFormat($json.date, \"dd-MM-yyyy\").minus({ days: 1 }).toFormat(\"dd-MM-yyyy\")}` }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        0,
+        0
+      ],
+      "id": "f048cd92-260c-4d5e-859c-ccf7f3134981",
+      "name": "Manage Midnight Shift Dates"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "fieldsToMatchString": "type, time, date, match_key",
+        "joinMode": "keepEverything",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        208,
+        112
+      ],
+      "id": "9892b2ec-9e78-4854-b97e-d9f14b7d4cf5",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "trigger": [
+          "message"
+        ],
+        "channelId": {
+          "__rl": true,
+          "value": "C03FAE1LNKZ",
+          "mode": "list",
+          "cachedResultName": "attendance-portal"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.slackTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1200,
+        32
+      ],
+      "id": "851d4360-c7bd-4826-bef9-a27f37799398",
+      "name": "Slack Trigger",
+      "webhookId": "51ff5038-8def-456b-87de-0e61e4170318"
+    }
+  ],
+  "connections": {
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Extract Data From Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Data From Response": {
+      "main": [
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Employee Data": {
+      "main": [
+        [
+          {
+            "node": "Match Attendance Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match Attendance Record": {
+      "main": [
+        [
+          {
+            "node": "Update Attendance Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Attendance Record": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "sheetName",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create sheet": {
+      "main": [
+        [
+          {
+            "node": "Sheet Seed Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append or update row in sheet": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Create sheet",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheet Seed Data": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Sheet Exists": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "sheetName": {
+      "main": [
+        [
+          {
+            "node": "Check Sheet Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Get Employee Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If2": {
+      "main": [
+        [
+          {
+            "node": "Manage Midnight Shift Dates",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Manage Midnight Shift Dates": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Trigger": {
+      "main": [
+        [
+          {
+            "node": "Execute Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "92e4fa6429e7ac8f3bde4029c29cc7d3b722ba7118c2871b2c6779ab88fff532"
+  }
+}
